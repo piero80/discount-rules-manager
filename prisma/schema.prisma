@@ -1,0 +1,75 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Session table (già presente in Shopify template)
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+}
+
+// Discount Rules - La tua feature principale
+model DiscountRule {
+  id        String   @id @default(cuid())
+  shop      String
+  mode      String   @default("exclude") // "exclude" o "include"
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  excludedCollections ExcludedCollection[]
+
+  @@unique([shop])
+  @@index([shop, active])
+}
+
+// Collections escluse dalle regole
+model ExcludedCollection {
+  id            String @id @default(cuid())
+  collectionId  String // Shopify collection GID
+  title         String
+  productsCount Int    @default(0)
+
+  // Relation to rule
+  ruleId String
+  rule   DiscountRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([ruleId, collectionId])
+  @@index([ruleId])
+}
+
+// Opzionale: Log delle azioni per analytics
+model RuleLog {
+  id        String   @id @default(cuid())
+  shop      String
+  action    String // "created", "updated", "deleted"
+  ruleId    String?
+  metadata  String? // JSON stringified
+  createdAt DateTime @default(now())
+
+  @@index([shop])
+  @@index([createdAt])
+}
