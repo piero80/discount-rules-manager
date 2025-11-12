@@ -13,6 +13,7 @@ RUN npm install --omit=dev && npm cache clean --force
 
 COPY . .
 
+RUN npx prisma generate
 RUN npm run build
 
 CMD ["npm", "start"]
