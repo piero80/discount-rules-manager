@@ -37,6 +37,15 @@ interface Collection {
   productsCount: number;
 }
 
+interface ExcludedCollection {
+  id: string;
+  collectionId: string;
+  title: string;
+  productsCount: number;
+  ruleId: string;
+  createdAt: Date;
+}
+
 interface Stats {
   total: number;
   excluded: number;
@@ -150,11 +159,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       ? {
           id: existingRule.id,
           mode: existingRule.mode as "exclude" | "include",
-          excludedCollections: existingRule.excludedCollections.map((exc) => ({
-            id: exc.collectionId,
-            title: exc.title,
-            productsCount: exc.productsCount,
-          })),
+          excludedCollections: existingRule.excludedCollections.map(
+            (exc: ExcludedCollection) => ({
+              id: exc.collectionId,
+              title: exc.title,
+              productsCount: exc.productsCount,
+            }),
+          ),
         }
       : null,
   });
