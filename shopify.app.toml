@@ -2,7 +2,7 @@
 
 client_id = "413ee41460b0764b68a32fb63ec9ac78"
 name = "discount-rules-manager"
-application_url = "https://example.com"
+application_url = "https://discount-rules-manager-production.up.railway.app"
 embedded = true
 
 [build]
@@ -24,4 +24,4 @@ api_version = "2026-01"
 scopes = "read_discounts,write_discounts,read_products,read_price_rules,write_price_rules"
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://discount-rules-manager-production.up.railway.app/auth/callback" ]
