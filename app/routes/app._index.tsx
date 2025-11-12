@@ -440,7 +440,7 @@ export default function Index(): JSX.Element {
             </InlineStack>
           </Layout.Section>
 
-          {/* Quick Actions */}
+          {/* Quick Actions
           {(stats.quickActions.hasRules || stats.discountsManaged > 0) && (
             <Layout.Section>
               <Card>
@@ -485,7 +485,7 @@ export default function Index(): JSX.Element {
                 </BlockStack>
               </Card>
             </Layout.Section>
-          )}
+          )} */}
 
           <Layout.Section>
             <BlockStack gap="500">
