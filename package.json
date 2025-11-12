@@ -12,7 +12,7 @@
     "start": "react-router-serve ./build/server/index.js",
     "start:production": "NODE_ENV=production npm run setup && npm run start",
     "docker-start": "npm run setup && npm run start",
-    "setup": "prisma generate && prisma migrate deploy",
+    "setup": "prisma generate && prisma db push",
     "setup:dev": "prisma generate && prisma db push",
     "db:reset": "prisma migrate reset --force",
     "db:seed": "prisma db seed",
