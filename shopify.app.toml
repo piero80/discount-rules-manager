@@ -24,4 +24,7 @@ api_version = "2026-01"
 scopes = "read_discounts,write_discounts,read_products,read_price_rules,write_price_rules"
 
 [auth]
-redirect_urls = [ "https://discount-rules-manager-production.up.railway.app/auth/callback" ]
+redirect_urls = [ 
+  "https://discount-rules-manager-production.up.railway.app/auth/callback",
+  "https://discount-rules-manager-production.up.railway.app/auth/shopify/callback"
+]
