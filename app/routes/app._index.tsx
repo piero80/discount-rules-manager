@@ -327,7 +327,7 @@ export default function Index(): JSX.Element {
   ];
 
   return (
-    <Page title="Dashboard - Discount Rules Manager">
+    <Page title="Dashboard - Smart Discount Rules Manager">
       <div style={{ marginBottom: "80px" }}>
         <Layout>
           {error && (

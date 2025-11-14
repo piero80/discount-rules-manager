@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "413ee41460b0764b68a32fb63ec9ac78"
-name = "discount-rules-manager"
+name = "Smart Discount Rules Manager"
 application_url = "https://discount-rules-manager-production.up.railway.app"
 embedded = true
 

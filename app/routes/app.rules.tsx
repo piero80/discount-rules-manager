@@ -444,7 +444,7 @@ export default function RulesPage(): JSX.Element {
       <Frame>
         {toastMarkup}
         <Page
-          title="Discount Rules"
+          title="Smart Discount Rules"
           backAction={{
             content: "Dashboard",
             onAction: () => navigate("/app"),
@@ -475,8 +475,8 @@ export default function RulesPage(): JSX.Element {
       <Page
         title={
           isExcludeMode
-            ? "Discount Exclusion Rules"
-            : "Discount Inclusion Rules"
+            ? "Smart Discount Exclusion Rules"
+            : "Smart Discount Inclusion Rules"
         }
         backAction={{ content: "Dashboard", onAction: () => navigate("/app") }}
         primaryAction={{

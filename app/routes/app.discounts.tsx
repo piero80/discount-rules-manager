@@ -172,7 +172,7 @@ export default function DiscountsPage() {
   if (!hasActiveRule) {
     return (
       <Page
-        title="Manage Discounts"
+        title="Smart Discount Manager"
         backAction={{ content: "Dashboard", onAction: () => navigate("/app") }}
         secondaryActions={[
           {
@@ -205,7 +205,7 @@ export default function DiscountsPage() {
   if (discounts.length === 0) {
     return (
       <Page
-        title="Manage Discounts"
+        title="Smart Discount Manager"
         backAction={{ content: "Dashboard", onAction: () => navigate("/app") }}
         secondaryActions={[
           {
@@ -233,7 +233,7 @@ export default function DiscountsPage() {
 
   return (
     <Page
-      title="Manage Discounts"
+      title="Smart Discount Manager"
       backAction={{ content: "Dashboard", onAction: () => navigate("/app") }}
       primaryAction={{
         content: "Apply Rules to All",
