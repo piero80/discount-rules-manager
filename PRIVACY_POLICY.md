@@ -109,9 +109,9 @@ We may update this privacy policy from time to time. We will notify users of sig
 
 For questions about this privacy policy or your data:
 
-**Email:** privacy@discountrules.app  
+**Email:** smartdiscountrulesmanager@gmail.com
 **Website:** https://discountrules.app/privacy  
-**Address:** [Your Business Address]
+**Address:** via franco bonvicini 6 00127 Roma Italy
 
 ## 10. Shopify-Specific Information
 

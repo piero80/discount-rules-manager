@@ -3,7 +3,7 @@
 ## 📋 APP INFORMATION
 
 **App Name**: Smart Discount Rules Manager  
-**Category**: Store Management  
+**Category**: Store Management › Finances - Other  
 **Price**: FREE (MVP Version)  
 **Developer**: Pietro Colangelo
 
@@ -19,18 +19,7 @@ Easily exclude/include collections from discount codes. One-click setup for smar
 
 **✨ Key Features:**
 
-- **Easy Setup**: Configure exclusion rules in minutes
-- **Collection Control**: Exclude/include specific collections from discounts
-- **Automatic Application**: Rules apply to all your discount codes instantly
-- **Visual Interface**: Clear overview of your collections and rules
-- **One-Click Apply**: Apply rules to existing discounts with one click
-
 **🎯 Perfect For:**
-
-- Excluding premium/luxury collections from general sales
-- Creating collection-specific promotions
-- Preventing discount abuse on high-margin products
-- Managing seasonal sales more effectively
 
 **💡 How It Works:**
 
@@ -45,6 +34,12 @@ Easily exclude/include collections from discount codes. One-click setup for smar
 - Shopify-approved security standards
 - Easy uninstall with automatic cleanup
 
+**Feature Set:**
+
+**App Introduction:**
+
+Smart Discount Rules Manager helps you control which collections are included or excluded from your discount codes, giving you full flexibility over your store’s promotions. Save time and prevent discount abuse with one-click rule management for all your discounts.
+
 Transform how you manage discount codes today!
 
 ## 🖼️ SCREENSHOTS REQUIRED
@@ -57,14 +52,11 @@ Transform how you manage discount codes today!
 
 ## 🎯 TARGET KEYWORDS
 
-- discount management
-- collection exclusion
-- promotion control
-- discount rules
-- collection management
-- shopify discounts
-- exclusion rules
-- promotion manager
+discount management
+collection exclusion
+discount rules
+smart promotions
+rule-based discounts
 
 ## 📞 SUPPORT INFO
 
@@ -106,3 +98,7 @@ Transform how you manage discount codes today!
 ---
 
 _Ready for Shopify App Store submission!_ 🎉
+
+**Note:** This app does not require an account to use. All features are available upon installation.
+
+**Demo Store URL**: https://discount-rules-manager-production.up.railway.app
