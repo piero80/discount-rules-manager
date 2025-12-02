@@ -16,5 +16,6 @@ COPY . .
 
 RUN npx prisma generate
 RUN npm run build
+RUN npx prisma migrate deploy --schema=prisma/schema.prisma
 
 CMD ["npm", "start"]
