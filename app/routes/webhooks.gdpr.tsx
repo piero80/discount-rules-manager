@@ -43,8 +43,29 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     return new Response("OK", { status: 200 });
   } catch (error) {
-    console.error("Error processing GDPR webhook:", error);
-    return new Response("Error", { status: 500 });
+    console.error("❌ GDPR webhook error:", error);
+
+    // Se l'errore è di autenticazione (HMAC invalido), ritorna 401
+    if (error instanceof Error) {
+      const errorMessage = error.message.toLowerCase();
+
+      if (
+        errorMessage.includes("hmac") ||
+        errorMessage.includes("unauthorized") ||
+        errorMessage.includes("invalid")
+      ) {
+        console.log("🚫 Unauthorized webhook request - Invalid HMAC");
+        return new Response("Unauthorized", { status: 401 });
+      }
+    }
+
+    // Per altri errori, ritorna 500
+    return new Response("Internal Server Error", {
+      status: 500,
+      headers: {
+        "Content-Type": "text/plain",
+      },
+    });
   }
 };
 
