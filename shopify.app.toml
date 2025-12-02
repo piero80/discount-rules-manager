@@ -20,7 +20,6 @@ api_version = "2025-10"
   uri = "/webhooks/app/scopes_update"
 
 [access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
 scopes = "read_discounts,read_price_rules,read_products,write_discounts,write_price_rules"
 
 [auth]
@@ -29,29 +28,11 @@ redirect_urls = [
   "https://discount-rules-manager-production.up.railway.app/auth/shopify/callback"
 ]
 
-# GDPR Compliance Webhooks (OBBLIGATORI)
-# Questi 3 webhook DEVONO essere configurati per passare la review Shopify
-
-# 1. Customer data request (GDPR Art. 15 - Right to access)
-[webhooks.privacy_compliance.customer_data_request]
-path = "/webhooks/gdpr"
-
-# 2. Customer redact (GDPR Art. 17 - Right to erasure)
-[webhooks.privacy_compliance.customer_redaction]
-path = "/webhooks/gdpr"
-
-# 3. Shop redact (Triggered 48h after uninstall)
-[webhooks.privacy_compliance.shop_redaction]
-path = "/webhooks/gdpr"
-
-# Webhook opzionali per features (aggiungi dopo che GDPR funziona)
-# [[webhooks.subscriptions]]
-# topics = ["discounts/create", "discounts/update"]
-# uri = "/webhooks"
-
-# [[webhooks.subscriptions]]
-# topics = ["collections/create"]
-# uri = "/webhooks"
+# GDPR Compliance Webhooks (OBBLIGATORI per App Store)
+[webhooks.privacy_compliance]
+customer_data_request_url = "https://discount-rules-manager-production.up.railway.app/webhooks/gdpr"
+customer_deletion_url = "https://discount-rules-manager-production.up.railway.app/webhooks/gdpr"
+shop_deletion_url = "https://discount-rules-manager-production.up.railway.app/webhooks/gdpr"
 
 [pos]
 embedded = false
