@@ -17,6 +17,6 @@ RUN rm -f .env
 
 RUN npx prisma generate
 RUN npm run build
-RUN npx prisma migrate deploy --schema=prisma/schema.prisma
 
-CMD ["npm", "start"]
+CMD npx prisma migrate deploy --schema=prisma/schema.prisma && npm start
+# CMD ["npm", "start"]
