@@ -1,4 +1,4 @@
-import type { ActionFunctionArgs } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { authenticate } from "../shopify.server";
 import prisma from "../services/db.server";
 
@@ -8,6 +8,13 @@ import prisma from "../services/db.server";
  * Questi 3 webhook sono richiesti da Shopify per conformità GDPR.
  * Devono essere implementati anche se l'app non memorizza dati customer.
  */
+
+// TEMPORANEO - per verificare che la route funzioni
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+  return new Response("GDPR webhook endpoint is active (use POST)", {
+    status: 200,
+  });
+};
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   try {
