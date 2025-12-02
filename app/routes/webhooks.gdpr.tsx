@@ -42,26 +42,14 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
 
     return new Response("OK", { status: 200 });
-  } catch (error) {
-    console.error("❌ GDPR webhook error:", error);
+  } catch (error: unknown) {
+    console.error("❌ Unexpected error in GDPR webhook:");
+    console.error(error);
 
-    // Se l'errore è di autenticazione (HMAC invalido), ritorna 401
-    if (error instanceof Error) {
-      const errorMessage = error.message.toLowerCase();
-
-      if (
-        errorMessage.includes("hmac") ||
-        errorMessage.includes("unauthorized") ||
-        errorMessage.includes("invalid")
-      ) {
-        console.log("🚫 Unauthorized webhook request - Invalid HMAC");
-        return new Response("Unauthorized", { status: 401 });
-      }
-    }
-
-    // Per altri errori, ritorna 500
-    return new Response("Internal Server Error", {
-      status: 500,
+    // Per qualsiasi errore imprevisto, ritorna comunque 401
+    // (Shopify richiede 401 per problemi di autenticazione)
+    return new Response("Unauthorized", {
+      status: 401,
       headers: {
         "Content-Type": "text/plain",
       },
