@@ -1,125 +1,156 @@
 # Privacy Policy - Smart Discount Rules Manager
 
-**Effective Date:** November 12, 2025  
-**Last Updated:** November 12, 2025
+**Last Updated:** [2025/10]
 
-## 1. Information We Collect
+## Introduction
 
-### 1.1 Shopify Store Data
+This Privacy Policy describes how Smart Discount Rules Manager ("we", "our", or "the App") collects, uses, and protects information when you use our Shopify application.
 
-We collect and process the following data from your Shopify store:
+## Information We Collect
 
-- Discount codes and their configurations
-- Collection information (names, IDs, product counts)
-- App usage statistics and preferences
-- Store identification information
+### Shop Information
 
-### 1.2 Technical Data
+When you install our App, we collect:
 
-- IP addresses and browser information for security
-- App usage analytics for performance improvement
-- Error logs for debugging purposes
+- Shop domain and ID
+- Access tokens for API authentication
+- Store configuration data
 
-## 2. How We Use Your Information
+### Discount and Collection Data
 
-### 2.1 Service Provision
+To provide our services, we store:
 
-- Managing discount rules and collection assignments
-- Providing real-time dashboard statistics
-- Automating discount code management processes
+- Discount exclusion rules you create
+- References to collection IDs you choose to exclude
+- Logs of rule applications and modifications
 
-### 2.2 Service Improvement
+### What We DON'T Collect
 
-- Analyzing usage patterns to improve functionality
-- Debugging issues and providing technical support
-- Developing new features based on user needs
+We do NOT collect or store:
 
-## 3. Data Storage and Security
+- Customer personal information (names, emails, addresses)
+- Payment information
+- Purchase history
+- Any customer behavioral data
 
-### 3.1 Data Storage
+## How We Use Your Information
 
-- All data is stored securely in encrypted databases
-- Data centers are located in secure facilities with appropriate safeguards
-- Regular backups are maintained for data recovery
+We use the collected information solely to:
 
-### 3.2 Security Measures
+1. Provide the core functionality of managing discount exclusion rules
+2. Apply your rules to discount codes automatically
+3. Display statistics about your discount configurations
+4. Improve and maintain the App's performance
 
-- All data transmission uses HTTPS encryption
-- Database connections are encrypted and secured
-- Access controls limit data access to authorized personnel only
-- Regular security audits and updates are performed
+## Data Storage and Security
 
-## 4. Data Sharing and Disclosure
+- All data is stored securely using industry-standard encryption
+- Data is stored on [Your hosting provider, e.g., AWS, Google Cloud]
+- We implement appropriate technical and organizational measures to protect your data
+- Access to data is restricted to authorized personnel only
 
-### 4.1 No Third-Party Sharing
+## Data Retention
 
-We do not sell, trade, or share your store data with third parties for marketing purposes.
+- We retain your shop data as long as the App is installed
+- Upon uninstallation, all data is automatically deleted after 48 hours
+- You can request immediate data deletion by contacting us
 
-### 4.2 Limited Disclosure
+## Your Rights (GDPR Compliance)
 
-We may disclose data only in the following circumstances:
+You have the right to:
 
-- When required by law or legal process
-- To protect our rights, property, or safety
-- With your explicit consent
+- **Access**: Request a copy of your data
+- **Rectification**: Correct inaccurate data
+- **Erasure**: Request deletion of your data
+- **Portability**: Receive your data in a structured format
+- **Objection**: Object to data processing
 
-## 5. Data Retention and Deletion
+To exercise these rights, contact us at: [smartdiscountrulesmanager@gmail.com]
 
-### 5.1 Active Use
+## Mandatory GDPR Webhooks
 
-Data is retained while the app is installed and active on your store.
+We comply with Shopify's mandatory privacy webhooks:
 
-### 5.2 App Uninstallation
+### 1. Customer Data Request
 
-- All store data is automatically deleted within 30 days of app uninstallation
-- Backup data is permanently removed within 90 days
-- You may request immediate data deletion by contacting us
+If a merchant requests customer data, we will provide any relevant information we hold (note: our App does not store customer-specific data).
 
-## 6. Your Rights
+### 2. Customer Data Erasure
 
-### 6.1 Access and Control
+If a merchant requests customer data deletion, we will remove any relevant data (note: our App does not store customer-specific data).
 
-- You can view your data through the app dashboard
-- You can modify or delete rules at any time
-- You can export your configuration data upon request
+### 3. Shop Data Erasure
 
-### 6.2 Data Portability
+When you uninstall the App, all your shop data is automatically deleted within 48 hours, including:
 
-Upon request, we will provide your data in a structured, commonly used format.
+- All discount exclusion rules
+- All excluded collection references
+- All logs and analytics data
+- All API access tokens
 
-## 7. Compliance
+## Third-Party Services
 
-### 7.1 GDPR Compliance
+We use the following third-party services:
 
-We comply with the General Data Protection Regulation for EU residents.
+- **Shopify**: For app hosting and API access (see [Shopify Privacy Policy](https://www.shopify.com/legal/privacy))
+- **[Your hosting provider]**: For data storage (see their privacy policy)
+- **[Analytics service, if any]**: For app usage analytics (see their privacy policy)
 
-### 7.2 Shopify Partner Requirements
+## Cookies
 
-We adhere to all Shopify Partner Program requirements and data handling standards.
+Our App does not use cookies. Session management is handled through Shopify's authentication system.
 
-## 8. Changes to This Policy
+## Changes to This Policy
 
-We may update this privacy policy from time to time. We will notify users of significant changes through:
+We may update this Privacy Policy from time to time. We will notify you of any changes by:
 
-- Email notifications to registered users
-- In-app notifications
-- Updates to this document with revision dates
+- Posting the new policy on this page
+- Updating the "Last Updated" date
+- Sending an email notification (if we have your contact information)
 
-## 9. Contact Information
+## Contact Us
 
-For questions about this privacy policy or your data:
+If you have questions about this Privacy Policy or our data practices:
 
-**Email:** smartdiscountrulesmanager@gmail.com
-**Website:** https://discountrules.app/privacy  
-**Address:** via franco bonvicini 6 00127 Roma Italy
+**Email:** [smartdiscountrulesmanager@gmail.com]
+**Website:** [smartdiscountrulesmanager.com]
+**Support Portal:** [smartdiscountrulesmanager.com]
 
-## 10. Shopify-Specific Information
+## Compliance
 
-This app is subject to Shopify's Terms of Service and Privacy Policy. Please review Shopify's policies at:
+This App complies with:
 
-- https://www.shopify.com/legal/terms
-- https://www.shopify.com/legal/privacy
+- General Data Protection Regulation (GDPR)
+- California Consumer Privacy Act (CCPA)
+- Shopify's API Terms of Service
+- Shopify's App Store Requirements
 
 ---
 
-_This privacy policy was last updated on November 12, 2025. Please check back regularly for updates._
+## For Shopify Merchants
+
+### What data does this app access?
+
+- Discount codes and rules (read and write)
+- Product collections (read only)
+- Shop configuration (read only)
+
+### Does this app access customer data?
+
+No. This app does not access, store, or process any customer personal information.
+
+### What happens to my data if I uninstall?
+
+All your data is automatically deleted 48 hours after uninstalling the app.
+
+### Can I export my data?
+
+Yes. Contact us at [smartdiscountrulesmanager@gmail.com] to request a data export.
+
+### Is my data shared with third parties?
+
+No. Your data is never sold or shared with third parties for marketing purposes.
+
+---
+
+**Questions?** Contact us at [smartdiscountrulesmanager@gmail.com]
