@@ -44,7 +44,7 @@ export interface UpdateDiscountRuleData {
 
 // Helper functions per le discount rules
 export const discountRuleHelpers = {
-  // Ottieni la regola per uno shop (dovrebbe essere una sola)
+  // Ottieni la regola per uno shop (cached per performance)
   async getActiveRule(shop: string) {
     return prisma.discountRule.findFirst({
       where: {
@@ -52,12 +52,44 @@ export const discountRuleHelpers = {
         active: true,
       },
       include: {
-        excludedCollections: true,
+        excludedCollections: {
+          select: {
+            id: true,
+            collectionId: true,
+            title: true,
+            productsCount: true,
+            createdAt: true,
+          },
+        },
       },
       orderBy: {
-        updatedAt: "desc", // Prende la più recente nel caso ci fossero duplicati
+        updatedAt: "desc",
       },
     });
+  },
+
+  // Versione ottimizzata per dashboard (meno dati)
+  async getRuleStats(shop: string) {
+    const rule = await prisma.discountRule.findFirst({
+      where: { shop, active: true },
+      select: {
+        id: true,
+        mode: true,
+        updatedAt: true,
+        _count: {
+          select: {
+            excludedCollections: true,
+          },
+        },
+      },
+    });
+
+    return {
+      hasRule: !!rule,
+      mode: rule?.mode || null,
+      excludedCount: rule?._count.excludedCollections || 0,
+      lastActivity: rule?.updatedAt?.toISOString() || null,
+    };
   },
 
   // Crea o aggiorna una regola (una sola regola per shop)

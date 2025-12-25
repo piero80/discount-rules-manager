@@ -36,6 +36,7 @@
     "@react-router/fs-routes": "^7.9.3",
     "@react-router/node": "^7.9.3",
     "@react-router/serve": "^7.9.3",
+    "@shopify/app-bridge": "^3.7.11",
     "@shopify/app-bridge-react": "^4.2.4",
     "@shopify/polaris": "^13.9.5",
     "@shopify/shopify-app-react-router": "^1.0.0",
@@ -66,6 +67,7 @@
     "graphql-config": "^5.1.1",
     "prettier": "^3.6.2",
     "prisma": "^6.19.0",
+    "terser": "^5.44.1",
     "typescript": "^5.9.3",
     "vite": "^6.3.6"
   },

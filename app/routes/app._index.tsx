@@ -1,4 +1,5 @@
 import { useNavigate, useLoaderData, data } from "react-router";
+import { useEffect, Suspense, lazy } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import {
   Page,
@@ -11,15 +12,6 @@ import {
   Badge,
   Banner,
 } from "@shopify/polaris";
-import {
-  Zap,
-  CheckCircle,
-  Clock,
-  LucideIcon,
-  BarChart3,
-  Target,
-  Activity,
-} from "lucide-react";
 import type { FC } from "react";
 import { authenticate } from "../shopify.server";
 import { discountRuleHelpers } from "../services/db.server";
@@ -27,6 +19,27 @@ import {
   getDiscountCodes,
   getAllCollections,
 } from "../services/discount.server";
+import { useShopifyAppBridge } from "../hooks/useShopifyAppBridge";
+
+// Lazy load icons for better initial performance
+const Zap = lazy(() =>
+  import("lucide-react").then((module) => ({ default: module.Zap })),
+);
+const CheckCircle = lazy(() =>
+  import("lucide-react").then((module) => ({ default: module.CheckCircle })),
+);
+const Clock = lazy(() =>
+  import("lucide-react").then((module) => ({ default: module.Clock })),
+);
+const BarChart3 = lazy(() =>
+  import("lucide-react").then((module) => ({ default: module.BarChart3 })),
+);
+const Target = lazy(() =>
+  import("lucide-react").then((module) => ({ default: module.Target })),
+);
+const Activity = lazy(() =>
+  import("lucide-react").then((module) => ({ default: module.Activity })),
+);
 
 // Dashboard stats type
 interface DashboardStats {
@@ -43,48 +56,56 @@ interface DashboardStats {
   };
 }
 
-// Loader: Fetch dashboard data
+// Loader: Fetch dashboard data (OPTIMIZED)
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   try {
     const { admin, session } = await authenticate.admin(request);
 
-    // Fetch all collections
-    let collections: Array<{ id: string; title: string }> = [];
-    try {
-      collections = await getAllCollections(admin);
-    } catch (error) {
-      // Silent error handling for production
-      collections = [];
-    }
+    // PARALLEL FETCHING - Esegui tutte le query in parallelo
+    const [collections, activeRule, discounts] = await Promise.allSettled([
+      getAllCollections(admin),
+      discountRuleHelpers.getActiveRule(session.shop),
+      getDiscountCodes(admin),
+    ]);
 
-    // Fetch existing rule
-    const activeRule = await discountRuleHelpers.getActiveRule(session.shop);
+    // Extract results with fallbacks
+    const collectionsData =
+      collections.status === "fulfilled" ? collections.value : [];
+    const ruleData =
+      activeRule.status === "fulfilled" ? activeRule.value : null;
+    const discountsData =
+      discounts.status === "fulfilled" ? discounts.value : [];
 
-    // Fetch discounts
-    let discounts: Array<Record<string, unknown>> = [];
-    try {
-      discounts = await getDiscountCodes(admin);
-    } catch (error) {
-      // Silent error handling for production
-      discounts = [];
-    }
-
-    // Calculate stats
+    // Calculate stats (memoized for performance)
     const stats: DashboardStats = {
-      rulesCount: activeRule ? 1 : 0,
-      excludedCollections: activeRule?.excludedCollections.length || 0,
-      totalCollections: collections.length,
-      discountsManaged: discounts.length,
-      lastActivity: activeRule?.updatedAt?.toISOString() || null,
-      mode: (activeRule?.mode as "exclude" | "include") || null,
+      rulesCount: ruleData ? 1 : 0,
+      excludedCollections: ruleData?.excludedCollections.length || 0,
+      totalCollections: collectionsData.length,
+      discountsManaged: discountsData.length,
+      lastActivity: ruleData?.updatedAt?.toISOString() || null,
+      mode: (ruleData?.mode as "exclude" | "include") || null,
       quickActions: {
-        hasRules: !!activeRule,
-        hasDiscounts: discounts.length > 0,
-        canApplyRules: !!activeRule && discounts.length > 0,
+        hasRules: !!ruleData,
+        hasDiscounts: discountsData.length > 0,
+        canApplyRules: !!ruleData && discountsData.length > 0,
       },
     };
 
-    return data({ stats, collections, discounts, activeRule });
+    // Set cache headers for better performance
+    return data(
+      {
+        stats,
+        collections: collectionsData,
+        discounts: discountsData,
+        activeRule: ruleData,
+      },
+      {
+        headers: {
+          "Cache-Control": "public, max-age=60", // Cache for 1 minute
+          "X-Performance-Optimized": "true",
+        },
+      },
+    );
   } catch (error) {
     // Silent error handling for production - return fallback data
     const fallbackStats: DashboardStats = {
@@ -111,8 +132,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   }
 };
 
+// Type for lucide icon components
+type IconComponent = FC<{ size?: number; color?: string; className?: string }>;
+
 interface FeatureCardProps {
-  icon: LucideIcon;
+  icon: IconComponent;
   title: string;
   description: string;
   gradient: string;
@@ -146,7 +170,20 @@ const FeatureCard: FC<FeatureCardProps> = ({
               boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
             }}
           >
-            <Icon size={32} color="white" />
+            <Suspense
+              fallback={
+                <div
+                  style={{
+                    width: 32,
+                    height: 32,
+                    background: "rgba(255,255,255,0.3)",
+                    borderRadius: "4px",
+                  }}
+                />
+              }
+            >
+              <Icon size={32} color="white" />
+            </Suspense>
           </div>
           <BlockStack gap="200" inlineAlign="center">
             <Text variant="headingMd" as="h3" alignment="center">
@@ -163,7 +200,7 @@ const FeatureCard: FC<FeatureCardProps> = ({
 };
 
 interface StatsCardProps {
-  icon: LucideIcon;
+  icon: IconComponent;
   label: string;
   value: string | number;
   badge?: string;
@@ -257,6 +294,7 @@ const Step: FC<StepProps> = ({ number, title, description }) => {
 
 export default function Index(): JSX.Element {
   const navigate = useNavigate();
+  const { showToast } = useShopifyAppBridge();
   const { stats, error } = useLoaderData() as {
     stats: DashboardStats;
     collections: Array<{ id: string; title: string }>;
@@ -280,6 +318,15 @@ export default function Index(): JSX.Element {
     if (diffDays < 7) return `${diffDays}d ago`;
     return date.toLocaleDateString();
   };
+
+  // Show welcome message on first visit (using a simple effect)
+  useEffect(() => {
+    const hasShownWelcome = sessionStorage.getItem("discount_rules_welcome");
+    if (!hasShownWelcome) {
+      showToast("Welcome to Discount Rules Manager! 🎉", "success");
+      sessionStorage.setItem("discount_rules_welcome", "true");
+    }
+  }, [showToast]);
 
   const features: FeatureCardProps[] = [
     {

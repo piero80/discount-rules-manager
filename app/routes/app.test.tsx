@@ -15,6 +15,7 @@ import {
   Divider,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
+// import { useShopifyAppBridge } from "../hooks/useShopifyAppBridge";
 
 interface TestResult {
   success: boolean;

@@ -29,21 +29,13 @@ import {
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
 import { discountRuleHelpers } from "../services/db.server";
+// import { useShopifyAppBridge } from "../hooks/useShopifyAppBridge";
 
 // Types
 interface Collection {
   id: string;
   title: string;
   productsCount: number;
-}
-
-interface ExcludedCollection {
-  id: string;
-  collectionId: string;
-  title: string;
-  productsCount: number;
-  ruleId: string;
-  createdAt: Date;
 }
 
 interface Stats {
@@ -159,13 +151,11 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       ? {
           id: existingRule.id,
           mode: existingRule.mode as "exclude" | "include",
-          excludedCollections: existingRule.excludedCollections.map(
-            (exc: ExcludedCollection) => ({
-              id: exc.collectionId,
-              title: exc.title,
-              productsCount: exc.productsCount,
-            }),
-          ),
+          excludedCollections: existingRule.excludedCollections.map((exc) => ({
+            id: exc.collectionId,
+            title: exc.title,
+            productsCount: exc.productsCount,
+          })),
         }
       : null,
   });
@@ -311,6 +301,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function RulesPage(): JSX.Element {
+  // const { showResourcePicker, showToast } = useShopifyAppBridge();
   const { collections, existingRule } = useLoaderData() as {
     collections: Collection[];
     // sampleDiscount: {
@@ -381,7 +372,20 @@ export default function RulesPage(): JSX.Element {
     formData.append("mode", selectedMode[0] || "exclude");
     submit(formData, { method: "post" });
   };
-
+  // App Bridge demo functions
+  // const handleTestResourcePicker = async (): Promise<void> => {
+  //   try {
+  //     const result = await showResourcePicker("Collection");
+  //     if (result) {
+  //       showToast(
+  //         `Selected collection: ${result?.selection?.[0]?.title || "Collection"}`,
+  //         "success",
+  //       );
+  //     }
+  //   } catch (error) {
+  //     showToast("Resource picker cancelled or failed", "error");
+  //   }
+  // };
   // const handleDebug = (): void => {
   //   if (!sampleDiscount) {
   //     alert("No discount found for debugging. Please create a discount first.");
@@ -724,6 +728,28 @@ export default function RulesPage(): JSX.Element {
                       </BlockStack>
                     </BlockStack>
                   </Card>
+
+                  {/* <Card>
+                    <BlockStack gap="300">
+                      <Text variant="headingMd" as="h2">
+                        🧪 App Bridge Test
+                      </Text>
+                      <BlockStack gap="300">
+                        <Button onClick={handleTestResourcePicker} fullWidth>
+                          Test Collection Picker
+                        </Button>
+                        <Button
+                          onClick={() =>
+                            showToast("App Bridge toast working!", "success")
+                          }
+                          fullWidth
+                          variant="secondary"
+                        >
+                          Test Toast Notification
+                        </Button>
+                      </BlockStack>
+                    </BlockStack>
+                  </Card> */}
 
                   <Card>
                     <BlockStack gap="300">

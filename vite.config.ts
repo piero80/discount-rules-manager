@@ -48,14 +48,43 @@ export default defineConfig({
       allow: ["app", "node_modules"],
     },
   },
-  plugins: [
-    reactRouter(),
-    tsconfigPaths(),
-  ],
   build: {
+    // Performance optimizations
+    minify: "terser",
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
+      },
+    },
+    rollupOptions: {
+      output: {
+        manualChunks: (id) => {
+          // Dynamic chunk splitting for better performance
+          if (id.includes("node_modules")) {
+            if (id.includes("lucide-react")) {
+              return "icons";
+            }
+            if (id.includes("@shopify")) {
+              return "shopify-vendor";
+            }
+            if (id.includes("react")) {
+              return "react-vendor";
+            }
+            return "vendor";
+          }
+        },
+      },
+    },
+    // Enable source maps in development only
+    sourcemap: process.env.NODE_ENV === "development",
+    // Reduce chunk size threshold
+    chunkSizeWarningLimit: 1000,
     assetsInlineLimit: 0,
   },
+  plugins: [reactRouter(), tsconfigPaths()],
   optimizeDeps: {
-    include: ["@shopify/app-bridge-react"],
+    include: ["@shopify/app-bridge-react", "@shopify/polaris"],
+    exclude: ["lucide-react"], // Icons can be lazy loaded
   },
 }) satisfies UserConfig;

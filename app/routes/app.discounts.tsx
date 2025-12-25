@@ -27,6 +27,7 @@ import {
   applyRuleToPriceRule,
   applyRuleToAllPriceRules,
 } from "../services/discount.server";
+import { useShopifyAppBridge } from "../hooks/useShopifyAppBridge";
 
 interface DiscountWithCodes {
   id: string;
@@ -109,6 +110,7 @@ export default function DiscountsPage() {
   const [loadingDiscountId, setLoadingDiscountId] = useState<string | null>(
     null,
   );
+  const { showToast } = useShopifyAppBridge();
 
   // Reset loading state when navigation completes
   useEffect(() => {
@@ -116,6 +118,17 @@ export default function DiscountsPage() {
       setLoadingDiscountId(null);
     }
   }, [navigation.state]);
+
+  // Show toast notifications for action results
+  useEffect(() => {
+    if (actionData && navigation.state === "idle") {
+      if (actionData.success) {
+        showToast(actionData.message, "success");
+      } else {
+        showToast(actionData.message, "error");
+      }
+    }
+  }, [actionData, navigation.state, showToast]);
 
   const handleApplyToOne = (priceRuleId: string) => {
     setLoadingDiscountId(priceRuleId);
