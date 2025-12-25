@@ -28,7 +28,7 @@ import {
   applyRuleToAllPriceRules,
 } from "../services/discount.server";
 import { useShopifyAppBridge } from "../hooks/useShopifyAppBridge";
-
+0;
 interface DiscountWithCodes {
   id: string;
   title: string;
