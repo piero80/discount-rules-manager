@@ -20,6 +20,7 @@ import {
   getAllCollections,
 } from "../services/discount.server";
 import { useShopifyAppBridge } from "../hooks/useShopifyAppBridge";
+import { DiscountTemplates } from "../components/DiscountTemplates";
 
 // Lazy load icons for better initial performance
 const Zap = lazy(() =>
@@ -328,6 +329,24 @@ export default function Index(): JSX.Element {
     }
   }, [showToast]);
 
+  // Handle template application
+  const handleTemplateApply = async (templateId: string) => {
+    try {
+      showToast(`Applying ${templateId} template...`, "info");
+
+      // Navigate to rules page with template parameter
+      navigate(`/app/rules?template=${templateId}`);
+
+      showToast(
+        "Template applied successfully! Configure details below.",
+        "success",
+      );
+    } catch (error) {
+      console.error("Template application failed:", error);
+      showToast("Failed to apply template. Please try again.", "error");
+    }
+  };
+
   const features: FeatureCardProps[] = [
     {
       icon: Zap,
@@ -377,6 +396,23 @@ export default function Index(): JSX.Element {
     <Page title="Dashboard - Smart Discount Rules Manager">
       <div style={{ marginBottom: "80px" }}>
         <Layout>
+          {/* FOMO Banner - NEW */}
+          <Layout.Section>
+            <Banner
+              title="🎉 NEW: Ready-to-Use Discount Templates!"
+              tone="success"
+            >
+              <Text variant="bodySm" as="span">
+                Black Friday, Bulk Discounts, VIP Rewards & more. Choose
+                template, click apply, start selling in 30 seconds.
+                <strong>
+                  {" "}
+                  Free forever - lock in before we limit free templates!
+                </strong>
+              </Text>
+            </Banner>
+          </Layout.Section>
+
           {error && (
             <Layout.Section>
               <Banner tone="critical" title="Connection Error">
@@ -421,6 +457,11 @@ export default function Index(): JSX.Element {
                 </BlockStack>
               </div>
             </Card>
+          </Layout.Section>
+
+          {/* Quick Start Templates - ALWAYS VISIBLE */}
+          <Layout.Section>
+            <DiscountTemplates onTemplateApply={handleTemplateApply} />
           </Layout.Section>
 
           {/* Stats Cards */}
