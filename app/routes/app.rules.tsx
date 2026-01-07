@@ -442,6 +442,32 @@ export default function RulesPage(): JSX.Element {
     <Toast content={toastMessage} onDismiss={toggleToast} error={toastError} />
   ) : null;
 
+  // Quick exclusion suggestions for common scenarios
+  const handleQuickExclude = useCallback(
+    (keywords: string[]) => {
+      const matchingCollections = collections.filter((col) =>
+        keywords.some((keyword) =>
+          col.title.toLowerCase().includes(keyword.toLowerCase()),
+        ),
+      );
+
+      const newExcluded = [...excludedCollections];
+      matchingCollections.forEach((col) => {
+        if (!newExcluded.some((exc) => exc.id === col.id)) {
+          newExcluded.push(col);
+        }
+      });
+
+      setExcludedCollections(newExcluded);
+      setToastMessage(
+        `Added ${matchingCollections.length} collections to exclusions`,
+      );
+      setToastActive(true);
+      setToastError(false);
+    },
+    [collections, excludedCollections],
+  );
+
   // Handle empty collections state
   if (collections.length === 0) {
     return (
@@ -561,6 +587,77 @@ export default function RulesPage(): JSX.Element {
               </BlockStack>
             </Card>
           </Layout.Section>
+
+          {isExcludeMode && (
+            <Layout.Section>
+              <Card>
+                <BlockStack gap="400">
+                  <Text variant="headingMd" as="h2">
+                    🚀 Quick Exclusions
+                  </Text>
+                  <Text variant="bodyMd" tone="subdued" as="p">
+                    Quickly exclude common collection types to protect your
+                    margins and avoid conflicts.
+                  </Text>
+                  <InlineStack gap="300" wrap>
+                    <Button
+                      onClick={() =>
+                        handleQuickExclude([
+                          "sale",
+                          "clearance",
+                          "outlet",
+                          "discount",
+                        ])
+                      }
+                      variant="secondary"
+                    >
+                      🏷️ Sale Items
+                    </Button>
+                    <Button
+                      onClick={() =>
+                        handleQuickExclude([
+                          "gift card",
+                          "gift-card",
+                          "giftcard",
+                        ])
+                      }
+                      variant="secondary"
+                    >
+                      🎁 Gift Cards
+                    </Button>
+                    <Button
+                      onClick={() =>
+                        handleQuickExclude(["premium", "luxury", "exclusive"])
+                      }
+                      variant="secondary"
+                    >
+                      💎 Premium Items
+                    </Button>
+                    <Button
+                      onClick={() =>
+                        handleQuickExclude(["digital", "download", "ebook"])
+                      }
+                      variant="secondary"
+                    >
+                      📱 Digital Products
+                    </Button>
+                    <Button
+                      onClick={() =>
+                        handleQuickExclude([
+                          "custom",
+                          "personalized",
+                          "bespoke",
+                        ])
+                      }
+                      variant="secondary"
+                    >
+                      ✨ Custom Products
+                    </Button>
+                  </InlineStack>
+                </BlockStack>
+              </Card>
+            </Layout.Section>
+          )}
 
           <Layout.Section>
             <InlineStack gap="400" align="start">
@@ -754,19 +851,20 @@ export default function RulesPage(): JSX.Element {
                   <Card>
                     <BlockStack gap="300">
                       <Text variant="headingMd" as="h2">
-                        💡 Pro Tips
+                        💡 Best Practices
                       </Text>
                       <BlockStack gap="200">
                         <Text variant="bodyMd" tone="subdued" as="p">
-                          • Always exclude &quot;Sale&quot; and
-                          &quot;Clearance&quot; to prevent double discounts
+                          • Use Quick Exclusions above to protect margins
                         </Text>
                         <Text variant="bodyMd" tone="subdued" as="p">
-                          • Exclude &quot;Gift Cards&quot; from percentage
-                          discounts
+                          • Always exclude items already on sale
                         </Text>
                         <Text variant="bodyMd" tone="subdued" as="p">
-                          • Use exclusion mode to save time on large catalogs
+                          • Gift cards shouldn't get percentage discounts
+                        </Text>
+                        <Text variant="bodyMd" tone="subdued" as="p">
+                          • Exclusion mode auto-includes new collections
                         </Text>
                       </BlockStack>
                     </BlockStack>

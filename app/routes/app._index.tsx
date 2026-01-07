@@ -332,18 +332,11 @@ export default function Index(): JSX.Element {
   // Handle template application
   const handleTemplateApply = async (templateId: string) => {
     try {
-      showToast(`Applying ${templateId} template...`, "info");
-
       // Navigate to rules page with template parameter
       navigate(`/app/rules?template=${templateId}`);
-
-      showToast(
-        "Template applied successfully! Configure details below.",
-        "success",
-      );
     } catch (error) {
-      console.error("Template application failed:", error);
-      showToast("Failed to apply template. Please try again.", "error");
+      console.error("Template navigation failed:", error);
+      showToast("Failed to load template. Please try again.", "error");
     }
   };
 
