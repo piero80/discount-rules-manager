@@ -18,8 +18,11 @@ export function AppNavigation() {
       <Link to="/app" style={{ textDecoration: "none" }}>
         <s-link>Dashboard</s-link>
       </Link>
+      <Link to="/app/conditional-rules" style={{ textDecoration: "none" }}>
+        <s-link>⚡ Conditional Rules</s-link>
+      </Link>
       <Link to="/app/rules" style={{ textDecoration: "none" }}>
-        <s-link>Exclusion Rules</s-link>
+        <s-link>Basic Rules</s-link>
       </Link>
       <Link to="/app/discounts" style={{ textDecoration: "none" }}>
         <s-link>Manage Discounts</s-link>

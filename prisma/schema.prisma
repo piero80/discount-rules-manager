@@ -61,7 +61,202 @@ model ExcludedCollection {
   @@index([ruleId])
 }
 
-// Opzionale: Log delle azioni per analytics
+// Advanced Conditional Rules System
+model ConditionalRule {
+  id          String  @id @default(cuid())
+  shop        String
+  name        String
+  description String?
+  active      Boolean @default(true)
+  priority    Int     @default(0) // Higher priority rules evaluated first
+
+  // Rule metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createdBy String? // User ID who created the rule
+
+  // Rule evaluation settings
+  maxUsagePerCustomer Int? // Limit how many times a customer can use this rule
+  maxTotalUsage       Int? // Global usage limit
+  startDate           DateTime?
+  endDate             DateTime?
+
+  // Relations
+  conditions RuleCondition[]
+  actions    RuleAction[]
+  executions RuleExecution[]
+
+  @@unique([shop, name])
+  @@index([shop, active])
+  @@index([priority])
+}
+
+// Individual conditions within a rule
+model RuleCondition {
+  id     String          @id @default(cuid())
+  ruleId String
+  rule   ConditionalRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  // Condition hierarchy (for grouping with AND/OR)
+  parentId String?
+  parent   RuleCondition?  @relation("ConditionHierarchy", fields: [parentId], references: [id])
+  children RuleCondition[] @relation("ConditionHierarchy")
+
+  // Logic operator with sibling conditions
+  logicOperator String @default("AND") // "AND", "OR"
+
+  // Condition type and configuration
+  conditionType String // "customer_tag", "cart_value", "product_tag", etc.
+  operator      String // "equals", "contains", "greater_than", "in_list", etc.
+  value         String // JSON stringified value(s)
+
+  // Condition metadata
+  negated   Boolean  @default(false) // NOT condition
+  createdAt DateTime @default(now())
+
+  @@index([ruleId])
+  @@index([conditionType])
+}
+
+// Actions to take when rule conditions are met
+model RuleAction {
+  id     String          @id @default(cuid())
+  ruleId String
+  rule   ConditionalRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  // Action configuration
+  actionType String // "percentage_discount", "fixed_discount", "free_shipping", "gift_product"
+  target     String? // What the action applies to: "cart", "specific_products", "shipping"
+  value      String // JSON stringified action parameters
+
+  // Action constraints
+  maxAmount     Decimal? // Maximum discount amount
+  applyToLowest Boolean  @default(false) // Apply to lowest priced items
+
+  createdAt DateTime @default(now())
+
+  @@index([ruleId])
+}
+
+// Track rule execution for analytics and limits
+model RuleExecution {
+  id     String          @id @default(cuid())
+  ruleId String
+  rule   ConditionalRule @relation(fields: [ruleId], references: [id])
+
+  // Execution context
+  shop       String
+  customerId String?
+  orderId    String?
+  cartId     String?
+
+  // Execution results
+  applied        Boolean
+  discountAmount Decimal?
+  failureReason  String? // Why the rule didn't apply
+
+  // Metadata
+  executionData String? // JSON with detailed execution context
+  executedAt    DateTime @default(now())
+
+  @@index([ruleId])
+  @@index([shop, customerId])
+  @@index([executedAt])
+}
+
+// Customer segments for advanced targeting
+model CustomerSegment {
+  id          String  @id @default(cuid())
+  shop        String
+  name        String
+  description String?
+
+  // Segment criteria (JSON)
+  criteria String // Conditions that define this segment
+
+  // Cached segment data
+  customerCount  Int       @default(0)
+  lastCalculated DateTime?
+
+  // Metadata
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  members CustomerSegmentMember[]
+
+  @@unique([shop, name])
+  @@index([shop, active])
+}
+
+// Track which customers belong to which segments
+model CustomerSegmentMember {
+  id        String          @id @default(cuid())
+  segmentId String
+  segment   CustomerSegment @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+
+  customerId String // Shopify customer ID
+  shop       String
+
+  // Membership metadata
+  addedAt    DateTime  @default(now())
+  validUntil DateTime? // For time-based segments
+
+  @@unique([segmentId, customerId])
+  @@index([shop, customerId])
+}
+
+// Pre-built rule templates for common scenarios
+model RuleTemplate {
+  id          String @id @default(cuid())
+  name        String
+  description String
+  category    String // "loyalty", "seasonal", "cart_optimization", etc.
+
+  // Template configuration
+  ruleConfig String // JSON with rule structure
+
+  // Usage tracking
+  useCount Int @default(0)
+
+  // Metadata
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category, active])
+}
+
+// Performance metrics for rules
+model RuleMetrics {
+  id     String @id @default(cuid())
+  ruleId String
+  shop   String
+
+  // Time period
+  periodStart DateTime
+  periodEnd   DateTime
+
+  // Performance data
+  executionCount Int
+  successCount   Int
+  totalDiscount  Decimal
+  revenueImpact  Decimal?
+
+  // Customer metrics
+  uniqueCustomers    Int
+  newCustomers       Int
+  returningCustomers Int
+
+  createdAt DateTime @default(now())
+
+  @@unique([ruleId, periodStart, periodEnd])
+  @@index([shop])
+  @@index([periodStart])
+}
+
+// Legacy rule log for backwards compatibility
 model RuleLog {
   id        String   @id @default(cuid())
   shop      String

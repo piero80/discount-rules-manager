@@ -275,7 +275,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     return data({
       success: true,
-      message: `Rules saved successfully! ${excludedCollections.length} collections ${mode === "exclude" ? "excluded" : "included"}.`,
+      message: `Rules saved successfully! ${excludedCollections.length} collections ${mode === "exclude" ? "excluded" : "included"}. Next: Go to Manage Discounts to apply these rules to your discount codes.`,
       ruleId: savedRule.id,
     });
   } catch (error) {
@@ -529,6 +529,16 @@ export default function RulesPage(): JSX.Element {
                   {existingRule.mode === "exclude" ? "excluded" : "included"}{" "}
                   collections in {existingRule.mode} mode.
                 </p>
+                <p style={{ marginTop: "8px" }}>
+                  <strong>Next step:</strong> Go to{" "}
+                  <Button
+                    variant="plain"
+                    onClick={() => navigate("/app/discounts")}
+                  >
+                    Manage Discounts
+                  </Button>{" "}
+                  to apply these rules to your existing discount codes.
+                </p>
               </Banner>
             </Layout.Section>
           )}
@@ -757,6 +767,16 @@ export default function RulesPage(): JSX.Element {
                         💡 Pro Tips
                       </Text>
                       <BlockStack gap="200">
+                        <Text variant="bodyMd" tone="critical" as="p">
+                          <strong>Important:</strong> After saving rules, go to{" "}
+                          <Button
+                            variant="plain"
+                            onClick={() => navigate("/app/discounts")}
+                          >
+                            Manage Discounts
+                          </Button>{" "}
+                          to apply them to your discount codes.
+                        </Text>
                         <Text variant="bodyMd" tone="subdued" as="p">
                           • Always exclude &quot;Sale&quot; and
                           &quot;Clearance&quot; to prevent double discounts
