@@ -969,6 +969,90 @@ export async function getAllCollections(admin: AdminType) {
 }
 
 /**
+ * Applica le regole di esclusione SOLO alle collezioni specificate (non a tutte le collezioni dello shop)
+ * Questa funzione rispetta le collezioni già configurate nel discount
+ */
+async function applyRulesToCollections(
+  shop: string,
+  collections: Array<{ id: string; title: string }>,
+): Promise<string[]> {
+  // Filter out invalid collections
+  const validCollections = collections.filter(
+    (col) => col.id && col.id.trim() !== "" && col.title !== undefined,
+  );
+
+  console.log(
+    `🎯 Applying rules to ${validCollections.length} existing discount collections (not all shop collections)`,
+  );
+
+  const rule = await discountRuleHelpers.getActiveRule(shop);
+
+  if (!rule || rule.excludedCollections.length === 0) {
+    // Nessuna regola = mantieni le collezioni originali del discount
+    return validCollections
+      .map((col) => {
+        try {
+          return extractNumericId(col.id);
+        } catch (error) {
+          console.warn(`⚠️ Invalid collection ID: ${col.id}`, error);
+          return null;
+        }
+      })
+      .filter((id): id is string => id !== null);
+  }
+
+  const selectedIds = new Set(
+    rule.excludedCollections.map(
+      (col: { collectionId: string }) => col.collectionId,
+    ),
+  );
+
+  if (rule.mode === "exclude") {
+    // EXCLUDE Mode: Mantieni le collezioni attuali del discount tranne quelle escluse
+    const entitledCollections = validCollections
+      .filter((col) => !selectedIds.has(col.id))
+      .map((col) => {
+        try {
+          return extractNumericId(col.id);
+        } catch (error) {
+          console.warn(
+            `⚠️ Invalid collection ID in exclude mode: ${col.id}`,
+            error,
+          );
+          return null;
+        }
+      })
+      .filter((id): id is string => id !== null);
+
+    console.log(
+      `✅ Exclude mode: Keeping ${entitledCollections.length} of ${validCollections.length} original discount collections`,
+    );
+    return entitledCollections;
+  } else {
+    // INCLUDE Mode: Solo le collezioni originali del discount che sono anche nelle regole di inclusione
+    const entitledCollections = validCollections
+      .filter((col) => selectedIds.has(col.id))
+      .map((col) => {
+        try {
+          return extractNumericId(col.id);
+        } catch (error) {
+          console.warn(
+            `⚠️ Invalid collection ID in include mode: ${col.id}`,
+            error,
+          );
+          return null;
+        }
+      })
+      .filter((id): id is string => id !== null);
+
+    console.log(
+      `✅ Include mode: Keeping ${entitledCollections.length} of ${validCollections.length} original discount collections`,
+    );
+    return entitledCollections;
+  }
+}
+
+/**
  * Calcola quali collections devono essere incluse nel discount
  * basandosi sulle regole di inclusione/esclusione
  */
@@ -1063,21 +1147,7 @@ export async function applyRuleToPriceRule(
       };
     }
 
-    // 2. Recupera tutte le collezioni
-    const allCollections = await getAllCollections(admin);
-
-    // 3. Calcola le collezioni da includere (escluse quelle nelle regole)
-    const entitledCollectionIds = await getEntitledCollections(
-      shop,
-      allCollections,
-    );
-
-    // Note: entitledCollectionIds.length === 0 is valid!
-    // It means "exclude all collections" which translates to items: { all: true }
-
-    const excludedCount = allCollections.length - entitledCollectionIds.length;
-
-    // 4. Trova il discount specifico per ottenere il tipo
+    // 2. Trova il discount specifico per ottenere il tipo e le collezioni attuali
     const discounts = await getDiscountCodes(admin);
     const targetDiscount = discounts.find((d) => d.id === priceRuleId);
 
@@ -1088,7 +1158,46 @@ export async function applyRuleToPriceRule(
       };
     }
 
-    // 5. Applica le mutation GraphQL basate sul tipo di discount
+    // 3. Ottieni le collezioni ATTUALMENTE associate al discount
+    const currentCollectionGids = await getCurrentDiscountCollections(
+      admin,
+      String(
+        targetDiscount.gid || `gid://shopify/DiscountNode/${targetDiscount.id}`,
+      ),
+    );
+
+    // 4. Recupera i dettagli delle collezioni attuali
+    const allCollections = await getAllCollections(admin);
+    const currentCollections = allCollections.filter((collection) =>
+      currentCollectionGids.includes(collection.id),
+    );
+
+    console.log(
+      `📊 Discount "${targetDiscount.title}" currently has ${currentCollections.length} collections`,
+    );
+    console.log(
+      "📋 Current collections:",
+      currentCollections.map((c) => c.title),
+    );
+
+    // 5. Applica le regole SOLO alle collezioni attuali del discount
+    const entitledCollectionIds = await applyRulesToCollections(
+      shop,
+      currentCollections,
+    );
+
+    // Note: entitledCollectionIds.length === 0 is valid!
+    // It means "exclude all original collections" which translates to items: { all: false }
+
+    const originalCount = currentCollections.length;
+    const finalCount = entitledCollectionIds.length;
+    const excludedCount = originalCount - finalCount;
+
+    console.log(
+      `📊 Original collections: ${originalCount}, Final collections: ${finalCount}, Excluded: ${excludedCount}`,
+    );
+
+    // 6. Applica le mutation GraphQL basate sul tipo di discount
     const mutationResult = await applyDiscountMutation(
       admin,
       targetDiscount as {
@@ -1101,32 +1210,18 @@ export async function applyRuleToPriceRule(
       allCollections,
     );
 
-    if (mutationResult.success) {
-      const message =
-        entitledCollectionIds.length === 0
-          ? `Successfully applied rules to "${targetDiscount.title}". All collections excluded - discount applies to no specific collections.`
-          : `Successfully applied rules to "${targetDiscount.title}". ${entitledCollectionIds.length} collections active (${excludedCount} excluded).`;
-
-      return {
-        success: true,
-        message,
-      };
-    } else {
+    if (!mutationResult.success) {
       return {
         success: false,
-        message: `Failed to apply rules: ${mutationResult.error}`,
+        message: `Failed to apply rules to discount: ${mutationResult.error}`,
       };
-    } /* 
-    // Per implementare correttamente questa funzione servirebbero:
-    // 1. Le moderne mutation GraphQL per i discount
-    // 2. O l'accesso alle REST API legacy tramite fetch diretto
-    // 
-    // Esempio di come potrebbe funzionare:
-    const allCollections = await getAllCollections(admin);
-    const entitledCollectionIds = await getEntitledCollections(shop, allCollections);
-    
-    // Qui andrebbero le mutation GraphQL per aggiornare i discount
-    */
+    }
+
+    // Return success message with detailed information
+    return {
+      success: true,
+      message: `Rules applied successfully! Discount now applies to ${finalCount} collections (was ${originalCount}). ${excludedCount} collections were excluded.`,
+    };
   } catch (error) {
     console.error("Error applying rule to price rule:", error);
     return {
