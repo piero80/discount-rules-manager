@@ -1,5 +1,5 @@
 import { useNavigate, useLoaderData, data } from "react-router";
-import { useEffect, Suspense, lazy } from "react";
+import { useEffect } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import {
   Page,
@@ -20,26 +20,18 @@ import {
   getAllCollections,
 } from "../services/discount.server";
 import { useShopifyAppBridge } from "../hooks/useShopifyAppBridge";
+import { StatsCardSkeleton } from "../components/LoadingSkeleton";
+import { usePerformanceMonitor } from "../utils/performance-lcp";
 
-// Lazy load icons for better initial performance
-const Zap = lazy(() =>
-  import("lucide-react").then((module) => ({ default: module.Zap })),
-);
-const CheckCircle = lazy(() =>
-  import("lucide-react").then((module) => ({ default: module.CheckCircle })),
-);
-const Clock = lazy(() =>
-  import("lucide-react").then((module) => ({ default: module.Clock })),
-);
-const BarChart3 = lazy(() =>
-  import("lucide-react").then((module) => ({ default: module.BarChart3 })),
-);
-const Target = lazy(() =>
-  import("lucide-react").then((module) => ({ default: module.Target })),
-);
-const Activity = lazy(() =>
-  import("lucide-react").then((module) => ({ default: module.Activity })),
-);
+// Import critical icons directly for faster LCP - these are above the fold
+import {
+  Zap,
+  CheckCircle,
+  Clock,
+  BarChart3,
+  Target,
+  Activity,
+} from "lucide-react";
 
 // Dashboard stats type
 interface DashboardStats {
@@ -56,12 +48,59 @@ interface DashboardStats {
   };
 }
 
-// Loader: Fetch dashboard data (OPTIMIZED)
+// Optimized loader with priority-based loading and aggressive caching
 export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const url = new URL(request.url);
+  const isInitialLoad = url.searchParams.get("initial") !== "false";
+
   try {
     const { admin, session } = await authenticate.admin(request);
+    const start = performance.now();
 
-    // PARALLEL FETCHING - Esegui tutte le query in parallelo
+    // Priority-based loading: Load critical data first, defer secondary
+    if (isInitialLoad) {
+      // First load: Only get essential data for immediate UI render
+      const [activeRule] = await Promise.allSettled([
+        discountRuleHelpers.getActiveRule(session.shop),
+      ]);
+
+      const ruleData =
+        activeRule.status === "fulfilled" ? activeRule.value : null;
+
+      // Minimal stats for fast initial render
+      const quickStats: DashboardStats = {
+        rulesCount: ruleData ? 1 : 0,
+        excludedCollections: ruleData?.excludedCollections.length || 0,
+        totalCollections: 0, // Will be loaded async
+        discountsManaged: 0, // Will be loaded async
+        lastActivity: ruleData?.updatedAt?.toISOString() || null,
+        mode: (ruleData?.mode as "exclude" | "include") || null,
+        quickActions: {
+          hasRules: !!ruleData,
+          hasDiscounts: false, // Will update async
+          canApplyRules: false, // Will update async
+        },
+      };
+
+      return data(
+        {
+          stats: quickStats,
+          collections: [],
+          discounts: [],
+          activeRule: ruleData,
+          isPartialLoad: true,
+        },
+        {
+          headers: {
+            "Cache-Control": "public, max-age=300", // Cache for 5 minutes
+            "X-Performance-Optimized": "priority-load",
+            "X-Load-Time": `${performance.now() - start}ms`,
+          },
+        },
+      );
+    }
+
+    // Full data loading for subsequent requests
     const [collections, activeRule, discounts] = await Promise.allSettled([
       getAllCollections(admin),
       discountRuleHelpers.getActiveRule(session.shop),
@@ -76,7 +115,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const discountsData =
       discounts.status === "fulfilled" ? discounts.value : [];
 
-    // Calculate stats (memoized for performance)
+    // Full stats calculation
     const stats: DashboardStats = {
       rulesCount: ruleData ? 1 : 0,
       excludedCollections: ruleData?.excludedCollections.length || 0,
@@ -91,23 +130,24 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       },
     };
 
-    // Set cache headers for better performance
     return data(
       {
         stats,
         collections: collectionsData,
         discounts: discountsData,
         activeRule: ruleData,
+        isPartialLoad: false,
       },
       {
         headers: {
-          "Cache-Control": "public, max-age=60", // Cache for 1 minute
-          "X-Performance-Optimized": "true",
+          "Cache-Control": "public, max-age=300",
+          "X-Performance-Optimized": "full-load",
+          "X-Load-Time": `${performance.now() - start}ms`,
         },
       },
     );
   } catch (error) {
-    // Silent error handling for production - return fallback data
+    console.error("Loader error:", error);
     const fallbackStats: DashboardStats = {
       rulesCount: 0,
       excludedCollections: 0,
@@ -128,12 +168,14 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       discounts: [],
       activeRule: null,
       error: "Unable to load dashboard data. Please check your connection.",
+      isPartialLoad: false,
     });
   }
 };
 
-// Type for lucide icon components
-type IconComponent = FC<{ size?: number; color?: string; className?: string }>;
+// Type for lucide icon components - compatibile con LucideIcon
+import type { LucideIcon } from "lucide-react";
+type IconComponent = LucideIcon;
 
 interface FeatureCardProps {
   icon: IconComponent;
@@ -170,20 +212,7 @@ const FeatureCard: FC<FeatureCardProps> = ({
               boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
             }}
           >
-            <Suspense
-              fallback={
-                <div
-                  style={{
-                    width: 32,
-                    height: 32,
-                    background: "rgba(255,255,255,0.3)",
-                    borderRadius: "4px",
-                  }}
-                />
-              }
-            >
-              <Icon size={32} color="white" />
-            </Suspense>
+            <Icon size={32} color="white" />
           </div>
           <BlockStack gap="200" inlineAlign="center">
             <Text variant="headingMd" as="h3" alignment="center">
@@ -295,13 +324,20 @@ const Step: FC<StepProps> = ({ number, title, description }) => {
 export default function Index(): JSX.Element {
   const navigate = useNavigate();
   const { showToast } = useShopifyAppBridge();
-  const { stats, error } = useLoaderData() as {
+  const { markLCP } = usePerformanceMonitor();
+  const { stats, error, isPartialLoad } = useLoaderData() as {
     stats: DashboardStats;
     collections: Array<{ id: string; title: string }>;
     discounts: Array<Record<string, unknown>>;
     activeRule: Record<string, unknown> | null;
     error?: string;
+    isPartialLoad?: boolean;
   };
+
+  // Mark LCP candidates for monitoring
+  useEffect(() => {
+    markLCP("Dashboard Header");
+  }, [markLCP]);
 
   // Format last activity
   const formatLastActivity = (isoString: string | null): string => {
@@ -318,6 +354,17 @@ export default function Index(): JSX.Element {
     if (diffDays < 7) return `${diffDays}d ago`;
     return date.toLocaleDateString();
   };
+
+  // Load full data after initial render for better performance
+  useEffect(() => {
+    if (isPartialLoad) {
+      // Defer secondary data loading to avoid blocking initial paint
+      const timer = setTimeout(() => {
+        navigate("?initial=false", { replace: true });
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isPartialLoad, navigate]);
 
   // Show welcome message on first visit (using a simple effect)
   useEffect(() => {
@@ -426,64 +473,75 @@ export default function Index(): JSX.Element {
           {/* Stats Cards */}
           <Layout.Section>
             <InlineStack gap="400" align="start">
-              <div style={{ flex: 1 }}>
-                <StatsCard
-                  icon={Target}
-                  label="Active Rules"
-                  value={stats.rulesCount}
-                  badge={stats.rulesCount > 0 ? "Active" : "None"}
-                  badgeTone={stats.rulesCount > 0 ? "success" : "critical"}
-                  description={
-                    stats.rulesCount > 0
-                      ? `${stats.excludedCollections} collections ${stats.mode === "exclude" ? "excluded" : "included"}`
-                      : "Create your first rule to get started"
-                  }
-                />
-              </div>
-              <div style={{ flex: 1 }}>
-                <StatsCard
-                  icon={BarChart3}
-                  label="Total Collections"
-                  value={stats.totalCollections}
-                  badge={stats.totalCollections > 0 ? "Ready" : "Empty"}
-                  badgeTone={stats.totalCollections > 0 ? "success" : "warning"}
-                  description={
-                    stats.quickActions.hasRules
-                      ? `${stats.totalCollections - stats.excludedCollections} will receive discounts`
-                      : "Available for discount rules"
-                  }
-                />
-              </div>
-              <div style={{ flex: 1 }}>
-                <StatsCard
-                  icon={Zap}
-                  label="Discounts Ready"
-                  value={stats.discountsManaged}
-                  badge={
-                    stats.quickActions.canApplyRules ? "Can Apply" : "No Rules"
-                  }
-                  badgeTone={
-                    stats.quickActions.canApplyRules ? "success" : "info"
-                  }
-                  description={
-                    stats.quickActions.canApplyRules
-                      ? "Ready for rule application"
-                      : stats.discountsManaged > 0
-                        ? "Create rules first"
-                        : "No discounts found"
-                  }
-                />
-              </div>
-              <div style={{ flex: 1 }}>
-                <StatsCard
-                  icon={Activity}
-                  label="Last Activity"
-                  value={formatLastActivity(stats.lastActivity)}
-                  badge={stats.lastActivity ? "Updated" : "Never"}
-                  badgeTone={stats.lastActivity ? "info" : "warning"}
-                  description="Last rule update"
-                />
-              </div>
+              {isPartialLoad &&
+              (stats.totalCollections === 0 || stats.discountsManaged === 0) ? (
+                <StatsCardSkeleton count={4} />
+              ) : (
+                <>
+                  <div style={{ flex: 1 }}>
+                    <StatsCard
+                      icon={Target}
+                      label="Active Rules"
+                      value={stats.rulesCount}
+                      badge={stats.rulesCount > 0 ? "Active" : "None"}
+                      badgeTone={stats.rulesCount > 0 ? "success" : "critical"}
+                      description={
+                        stats.rulesCount > 0
+                          ? `${stats.excludedCollections} collections ${stats.mode === "exclude" ? "excluded" : "included"}`
+                          : "Create your first rule to get started"
+                      }
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <StatsCard
+                      icon={BarChart3}
+                      label="Total Collections"
+                      value={stats.totalCollections}
+                      badge={stats.totalCollections > 0 ? "Ready" : "Empty"}
+                      badgeTone={
+                        stats.totalCollections > 0 ? "success" : "warning"
+                      }
+                      description={
+                        stats.quickActions.hasRules
+                          ? `${stats.totalCollections - stats.excludedCollections} will receive discounts`
+                          : "Available for discount rules"
+                      }
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <StatsCard
+                      icon={Zap}
+                      label="Discounts Ready"
+                      value={stats.discountsManaged}
+                      badge={
+                        stats.quickActions.canApplyRules
+                          ? "Can Apply"
+                          : "No Rules"
+                      }
+                      badgeTone={
+                        stats.quickActions.canApplyRules ? "success" : "info"
+                      }
+                      description={
+                        stats.quickActions.canApplyRules
+                          ? "Ready for rule application"
+                          : stats.discountsManaged > 0
+                            ? "Create rules first"
+                            : "No discounts found"
+                      }
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <StatsCard
+                      icon={Activity}
+                      label="Last Activity"
+                      value={formatLastActivity(stats.lastActivity)}
+                      badge={stats.lastActivity ? "Updated" : "Never"}
+                      badgeTone={stats.lastActivity ? "info" : "warning"}
+                      description="Last rule update"
+                    />
+                  </div>
+                </>
+              )}
             </InlineStack>
           </Layout.Section>
 
