@@ -11,10 +11,11 @@ import {
   InlineStack,
   Badge,
   Banner,
+  // EmptyState,
 } from "@shopify/polaris";
 import type { FC } from "react";
 import { authenticate } from "../shopify.server";
-import { discountRuleHelpers } from "../services/db.server";
+import { RuleManager } from "../services/rule-manager.server";
 import {
   getDiscountCodes,
   getAllCollections,
@@ -36,15 +37,20 @@ import {
 // Dashboard stats type
 interface DashboardStats {
   rulesCount: number;
-  excludedCollections: number;
+  discountsWithRules: number;
+  totalExclusions: number;
   totalCollections: number;
   discountsManaged: number;
   lastActivity: string | null;
-  mode: "exclude" | "include" | null;
   quickActions: {
     hasRules: boolean;
     hasDiscounts: boolean;
-    canApplyRules: boolean;
+    canCreateRules: boolean;
+    suggestedAction:
+      | "create-first-rule"
+      | "add-more-rules"
+      | "manage-existing"
+      | null;
   };
 }
 
@@ -60,25 +66,39 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     // Priority-based loading: Load critical data first, defer secondary
     if (isInitialLoad) {
       // First load: Only get essential data for immediate UI render
-      const [activeRule] = await Promise.allSettled([
-        discountRuleHelpers.getActiveRule(session.shop),
+      const [rulesData] = await Promise.allSettled([
+        RuleManager.getRules(session.shop),
       ]);
 
-      const ruleData =
-        activeRule.status === "fulfilled" ? activeRule.value : null;
+      const rules = rulesData.status === "fulfilled" ? rulesData.value : [];
+      const totalExclusions = rules.reduce(
+        (sum, rule) =>
+          sum +
+          (rule.excludedCollections?.length || 0) +
+          (rule.excludedProducts?.length || 0),
+        0,
+      );
 
       // Minimal stats for fast initial render
       const quickStats: DashboardStats = {
-        rulesCount: ruleData ? 1 : 0,
-        excludedCollections: ruleData?.excludedCollections.length || 0,
+        rulesCount: rules.length,
+        discountsWithRules: rules.filter((rule) => rule.discountId).length,
+        totalExclusions,
         totalCollections: 0, // Will be loaded async
         discountsManaged: 0, // Will be loaded async
-        lastActivity: ruleData?.updatedAt?.toISOString() || null,
-        mode: (ruleData?.mode as "exclude" | "include") || null,
+        lastActivity:
+          rules.length > 0
+            ? Math.max(
+                ...rules.map((r) =>
+                  new Date(r.updatedAt || r.createdAt).getTime(),
+                ),
+              ).toString()
+            : null,
         quickActions: {
-          hasRules: !!ruleData,
+          hasRules: rules.length > 0,
           hasDiscounts: false, // Will update async
-          canApplyRules: false, // Will update async
+          canCreateRules: false, // Will update async
+          suggestedAction: rules.length === 0 ? "create-first-rule" : null,
         },
       };
 
@@ -87,7 +107,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           stats: quickStats,
           collections: [],
           discounts: [],
-          activeRule: ruleData,
+          rules: rules,
           isPartialLoad: true,
         },
         {
@@ -101,32 +121,65 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     }
 
     // Full data loading for subsequent requests
-    const [collections, activeRule, discounts] = await Promise.allSettled([
+    const [collections, rules, discounts] = await Promise.allSettled([
       getAllCollections(admin),
-      discountRuleHelpers.getActiveRule(session.shop),
+      RuleManager.getRules(session.shop),
       getDiscountCodes(admin),
     ]);
 
     // Extract results with fallbacks
     const collectionsData =
       collections.status === "fulfilled" ? collections.value : [];
-    const ruleData =
-      activeRule.status === "fulfilled" ? activeRule.value : null;
+    const rulesData = rules.status === "fulfilled" ? rules.value : [];
     const discountsData =
       discounts.status === "fulfilled" ? discounts.value : [];
 
+    // Calculate stats for multiple rules
+    const totalExclusions = rulesData.reduce(
+      (sum, rule) =>
+        sum +
+        (rule.excludedCollections?.length || 0) +
+        (rule.excludedProducts?.length || 0),
+      0,
+    );
+    const discountsWithRules = rulesData.filter(
+      (rule) => rule.discountId,
+    ).length;
+    const unrulledDiscounts = discountsData.length - discountsWithRules;
+
+    // Determine suggested action
+    let suggestedAction: DashboardStats["quickActions"]["suggestedAction"] =
+      null;
+    if (rulesData.length === 0) {
+      suggestedAction = "create-first-rule";
+    } else if (unrulledDiscounts > 0) {
+      suggestedAction = "add-more-rules";
+    } else if (rulesData.length > 0) {
+      suggestedAction = "manage-existing";
+    }
+
     // Full stats calculation
     const stats: DashboardStats = {
-      rulesCount: ruleData ? 1 : 0,
-      excludedCollections: ruleData?.excludedCollections.length || 0,
+      rulesCount: rulesData.length,
+      discountsWithRules,
+      totalExclusions,
       totalCollections: collectionsData.length,
       discountsManaged: discountsData.length,
-      lastActivity: ruleData?.updatedAt?.toISOString() || null,
-      mode: (ruleData?.mode as "exclude" | "include") || null,
+      lastActivity:
+        rulesData.length > 0
+          ? new Date(
+              Math.max(
+                ...rulesData.map((r) =>
+                  new Date(r.updatedAt || r.createdAt).getTime(),
+                ),
+              ),
+            ).toISOString()
+          : null,
       quickActions: {
-        hasRules: !!ruleData,
+        hasRules: rulesData.length > 0,
         hasDiscounts: discountsData.length > 0,
-        canApplyRules: !!ruleData && discountsData.length > 0,
+        canCreateRules: discountsData.length > 0,
+        suggestedAction,
       },
     };
 
@@ -135,7 +188,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
         stats,
         collections: collectionsData,
         discounts: discountsData,
-        activeRule: ruleData,
+        rules: rulesData,
         isPartialLoad: false,
       },
       {
@@ -150,15 +203,16 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     console.error("Loader error:", error);
     const fallbackStats: DashboardStats = {
       rulesCount: 0,
-      excludedCollections: 0,
+      discountsWithRules: 0,
+      totalExclusions: 0,
       totalCollections: 0,
       discountsManaged: 0,
       lastActivity: null,
-      mode: null,
       quickActions: {
         hasRules: false,
         hasDiscounts: false,
-        canApplyRules: false,
+        canCreateRules: false,
+        suggestedAction: null,
       },
     };
 
@@ -166,7 +220,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       stats: fallbackStats,
       collections: [],
       discounts: [],
-      activeRule: null,
+      rules: [],
       error: "Unable to load dashboard data. Please check your connection.",
       isPartialLoad: false,
     });
@@ -329,7 +383,7 @@ export default function Index(): JSX.Element {
     stats: DashboardStats;
     collections: Array<{ id: string; title: string }>;
     discounts: Array<Record<string, unknown>>;
-    activeRule: Record<string, unknown> | null;
+    rules: Array<Record<string, unknown>>;
     error?: string;
     isPartialLoad?: boolean;
   };
@@ -402,21 +456,21 @@ export default function Index(): JSX.Element {
   const steps: StepProps[] = [
     {
       number: 1,
-      title: "Choose Your Mode",
+      title: "Select a Discount",
       description:
-        "Select between smart exclusion mode (recommended) or manual inclusion mode.",
+        "Choose which discount code you want to configure exclusion rules for.",
     },
     {
       number: 2,
-      title: "Configure Collections",
+      title: "Configure Exclusions",
       description:
-        'Exclude collections you don\'t want (e.g., "Sale Items") or include only specific ones.',
+        'Select collections and products to exclude from the discount (e.g., "Sale Items", premium products).',
     },
     {
       number: 3,
-      title: "Done!",
+      title: "Apply & Forget",
       description:
-        "Your rules will be applied automatically when you manage discounts.",
+        "Your rules are automatically applied and maintained. Create more rules for other discounts as needed.",
     },
   ];
 
@@ -444,24 +498,49 @@ export default function Index(): JSX.Element {
                         </Text>
                         <Text variant="bodyMd" tone="subdued" as="p">
                           {stats.quickActions.hasRules
-                            ? `${stats.mode === "exclude" ? "Smart exclusion" : "Manual inclusion"} mode active`
-                            : "No discount rules configured yet"}
+                            ? `Managing rules for ${stats.discountsWithRules} of ${stats.discountsManaged} discounts`
+                            : "Create smart rules to automatically manage discount exclusions"}
                         </Text>
                       </BlockStack>
                       <InlineStack gap="200">
-                        {stats.quickActions.canApplyRules && (
-                          <Button onClick={() => navigate("/app/discounts")}>
-                            Apply Rules Now
+                        {/* Smart routing based on suggested action */}
+                        {stats.quickActions.suggestedAction ===
+                          "create-first-rule" && (
+                          <Button
+                            variant="primary"
+                            onClick={() => navigate("/app/discounts")}
+                          >
+                            🚀 Get Started
                           </Button>
                         )}
-                        <Button
-                          variant="primary"
-                          onClick={() => navigate("/app/rules")}
-                        >
-                          {stats.quickActions.hasRules
-                            ? "Manage Rules"
-                            : "Create Rules"}
-                        </Button>
+                        {stats.quickActions.suggestedAction ===
+                          "add-more-rules" && (
+                          <>
+                            <Button onClick={() => navigate("/app/rules")}>
+                              Manage Existing
+                            </Button>
+                            <Button
+                              variant="primary"
+                              onClick={() => navigate("/app/discounts")}
+                            >
+                              ➕ Add More Rules
+                            </Button>
+                          </>
+                        )}
+                        {stats.quickActions.suggestedAction ===
+                          "manage-existing" && (
+                          <>
+                            <Button onClick={() => navigate("/app/discounts")}>
+                              Quick Add
+                            </Button>
+                            <Button
+                              variant="primary"
+                              onClick={() => navigate("/app/rules")}
+                            >
+                              Manage Rules
+                            </Button>
+                          </>
+                        )}
                       </InlineStack>
                     </InlineStack>
                   </BlockStack>
@@ -487,7 +566,7 @@ export default function Index(): JSX.Element {
                       badgeTone={stats.rulesCount > 0 ? "success" : "critical"}
                       description={
                         stats.rulesCount > 0
-                          ? `${stats.excludedCollections} collections ${stats.mode === "exclude" ? "excluded" : "included"}`
+                          ? `${stats.totalExclusions} total exclusions configured`
                           : "Create your first rule to get started"
                       }
                     />
@@ -495,38 +574,40 @@ export default function Index(): JSX.Element {
                   <div style={{ flex: 1 }}>
                     <StatsCard
                       icon={BarChart3}
-                      label="Total Collections"
-                      value={stats.totalCollections}
-                      badge={stats.totalCollections > 0 ? "Ready" : "Empty"}
+                      label="Discount Coverage"
+                      value={`${stats.discountsWithRules}/${stats.discountsManaged}`}
+                      badge={
+                        stats.discountsWithRules === stats.discountsManaged &&
+                        stats.discountsManaged > 0
+                          ? "Complete"
+                          : "Partial"
+                      }
                       badgeTone={
-                        stats.totalCollections > 0 ? "success" : "warning"
+                        stats.discountsWithRules === stats.discountsManaged &&
+                        stats.discountsManaged > 0
+                          ? "success"
+                          : "warning"
                       }
                       description={
-                        stats.quickActions.hasRules
-                          ? `${stats.totalCollections - stats.excludedCollections} will receive discounts`
-                          : "Available for discount rules"
+                        stats.discountsManaged > 0
+                          ? `${stats.discountsManaged - stats.discountsWithRules} discounts need rules`
+                          : "No discounts found in your store"
                       }
                     />
                   </div>
                   <div style={{ flex: 1 }}>
                     <StatsCard
                       icon={Zap}
-                      label="Discounts Ready"
-                      value={stats.discountsManaged}
-                      badge={
-                        stats.quickActions.canApplyRules
-                          ? "Can Apply"
-                          : "No Rules"
-                      }
+                      label="Collections"
+                      value={stats.totalCollections}
+                      badge={stats.totalCollections > 0 ? "Available" : "Empty"}
                       badgeTone={
-                        stats.quickActions.canApplyRules ? "success" : "info"
+                        stats.totalCollections > 0 ? "success" : "warning"
                       }
                       description={
-                        stats.quickActions.canApplyRules
-                          ? "Ready for rule application"
-                          : stats.discountsManaged > 0
-                            ? "Create rules first"
-                            : "No discounts found"
+                        stats.totalCollections > 0
+                          ? "Ready for rule configuration"
+                          : "Create collections in your Shopify admin first"
                       }
                     />
                   </div>
@@ -634,9 +715,9 @@ export default function Index(): JSX.Element {
                       <Button
                         variant="primary"
                         size="large"
-                        onClick={() => navigate("/app/rules")}
+                        onClick={() => navigate("/app/discounts")}
                       >
-                        Create Your First Rule
+                        Get Started with Rules
                       </Button>
                     </div>
                   </BlockStack>

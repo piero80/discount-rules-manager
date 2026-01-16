@@ -3,7 +3,6 @@ import {
   data,
   useLoaderData,
   useActionData,
-  useSubmit,
   useNavigation,
   useNavigate,
 } from "react-router";
@@ -20,15 +19,15 @@ import {
   DataTable,
   Banner,
   EmptyState,
+  Modal,
+  List,
+  ButtonGroup,
+  Tooltip,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
-import {
-  getDiscountCodes,
-  applyRuleToPriceRule,
-  applyRuleToAllPriceRules,
-} from "../services/discount.server";
-import { useShopifyAppBridge } from "../hooks/useShopifyAppBridge";
-0;
+import { getDiscountCodes } from "../services/discount.server";
+import { RuleManager } from "../services/rule-manager.server";
+import { EditIcon, ViewIcon } from "@shopify/polaris-icons";
 interface DiscountWithCodes {
   id: string;
   title: string;
@@ -39,9 +38,20 @@ interface DiscountWithCodes {
   target_selection: string;
 }
 
+interface DiscountRule {
+  mode: string;
+  id: string;
+  discountId: string;
+  excludedCollections: Array<{ id: string; title: string }>;
+  excludedProducts: Array<{ id: string; title: string }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface LoaderData {
   discounts: DiscountWithCodes[];
-  hasActiveRule: boolean;
+  rules: DiscountRule[];
+  shopMode: "legacy" | "multiple";
 }
 
 interface ActionData {
@@ -51,47 +61,70 @@ interface ActionData {
 }
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-  const { admin, session } = await authenticate.admin(request);
+  try {
+    const { admin, session } = await authenticate.admin(request);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const discounts = await getDiscountCodes(admin as any);
+    if (!admin || !session) {
+      throw new Error("Authentication failed");
+    }
 
-  console.log(discounts, "discounts");
+    // Get discounts and rules in parallel with error handling
+    const [discounts, rules, shopMode] = await Promise.all([
+      getDiscountCodes(admin).catch((err) => {
+        console.error("Error fetching discounts:", err);
+        return [];
+      }),
+      RuleManager.getRules(session.shop).catch((err) => {
+        console.error("Error fetching rules:", err);
+        return [];
+      }),
+      RuleManager.getShopMode().catch((err) => {
+        console.error("Error fetching shop mode:", err);
+        return "legacy" as const;
+      }),
+    ]);
 
-  // Check if shop has active rule
-  const { discountRuleHelpers } = await import("../services/db.server");
-  const activeRule = await discountRuleHelpers.getActiveRule(session.shop);
+    console.log({ discounts, rules, shopMode }, "discounts page data");
 
-  return data({
-    discounts,
-    hasActiveRule: !!activeRule,
-  });
+    return data({
+      discounts: discounts || [],
+      rules: rules || [],
+      shopMode: shopMode || "legacy",
+    });
+  } catch (error) {
+    console.error("Loader error:", error);
+    throw new Error(
+      `Failed to load discounts page: ${error instanceof Error ? error.message : "Unknown error"}`,
+    );
+  }
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { admin, session } = await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
   const formData = await request.formData();
   const actionType = formData.get("actionType");
-  const priceRuleId = formData.get("priceRuleId");
+  const discountId = formData.get("discountId");
 
-  if (actionType === "applyToOne" && priceRuleId) {
-    const result = await applyRuleToPriceRule(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      admin as any,
-      session.shop,
-      priceRuleId as string,
-    );
-    return data(result);
-  }
+  if (actionType === "createRule" && discountId) {
+    try {
+      // Create empty rule for the discount
+      await RuleManager.upsertRule(session.shop, {
+        discountId: discountId as string,
+        mode: "exclude", // Default to exclude mode for new rules
+        excludedCollections: [],
+        excludedProducts: [],
+      });
 
-  if (actionType === "applyToAll") {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = await applyRuleToAllPriceRules(admin as any, session.shop);
-    return data({
-      success: result.success > 0,
-      message: `Applied to ${result.success} of ${result.total} discounts`,
-      details: result,
-    });
+      return data({
+        success: true,
+        message: "Rule created! Configure exclusions now.",
+      });
+    } catch (error) {
+      return data({
+        success: false,
+        message: "Failed to create rule. Please try again.",
+      });
+    }
   }
 
   return data({
@@ -101,141 +134,281 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 };
 
 export default function DiscountsPage() {
-  const { discounts, hasActiveRule } = useLoaderData() as LoaderData;
+  const loaderData = useLoaderData() as LoaderData;
   const actionData = useActionData() as ActionData | undefined;
-  const submit = useSubmit();
   const navigation = useNavigation();
   const navigate = useNavigate();
+
+  // Safe destructuring with fallbacks
+  const discounts = loaderData?.discounts || [];
+  const rules = loaderData?.rules || [];
+
   const [showBanner, setShowBanner] = useState(true);
-  const [loadingDiscountId, setLoadingDiscountId] = useState<string | null>(
-    null,
-  );
-  const { showToast } = useShopifyAppBridge();
+  const [selectedDiscount, setSelectedDiscount] =
+    useState<DiscountWithCodes | null>(null);
+  const [modalActive, setModalActive] = useState(false);
+  // const [modalMode, setModalMode] = useState<'view' | 'edit'>('view'); // Currently not used
+  const [loadingAction, setLoadingAction] = useState<string | null>(null);
+
+  // Simple toast function using console for development
+  const showToast = (
+    message: string,
+    type: "success" | "error" | "info" = "success",
+  ) => {
+    console.log(`[${type.toUpperCase()}] ${message}`);
+  };
 
   // Reset loading state when navigation completes
   useEffect(() => {
-    if (navigation.state === "idle") {
-      setLoadingDiscountId(null);
+    if (navigation && navigation.state === "idle") {
+      setLoadingAction(null);
     }
-  }, [navigation.state]);
+  }, [navigation]);
 
   // Show toast notifications for action results
   useEffect(() => {
-    if (actionData && navigation.state === "idle") {
+    if (actionData && navigation && navigation.state === "idle") {
       if (actionData.success) {
         showToast(actionData.message, "success");
       } else {
         showToast(actionData.message, "error");
       }
     }
-  }, [actionData, navigation.state, showToast]);
+  }, [actionData, navigation]);
 
-  const handleApplyToOne = (priceRuleId: string) => {
-    setLoadingDiscountId(priceRuleId);
-    const formData = new FormData();
-    formData.append("actionType", "applyToOne");
-    formData.append("priceRuleId", priceRuleId);
-    submit(formData, { method: "post" });
+  // Helper to get discount rule
+  const getDiscountRule = (discountId: string) =>
+    rules.find((rule) => rule.discountId === discountId);
+
+  // Helper to get exclusions summary for a discount
+  const getExclusionsSummary = (discountId: string) => {
+    const rule = getDiscountRule(discountId);
+    if (!rule) return { text: "No exclusions set", count: 0, items: [] };
+
+    const collections = rule.excludedCollections || [];
+    const products = rule.excludedProducts || [];
+    const totalCount = collections.length + products.length;
+
+    if (totalCount === 0)
+      return { text: "No exclusions set", count: 0, items: [] };
+
+    const items = [
+      ...collections.map((c) => ({ type: "collection", name: c.title })),
+      ...products.map((p) => ({ type: "product", name: p.title })),
+    ];
+
+    return {
+      text: `${totalCount} exclusion${totalCount > 1 ? "s" : ""}`,
+      count: totalCount,
+      items: items.slice(0, 3), // Show only first 3 for preview
+    };
   };
 
-  const handleApplyToAll = () => {
-    setLoadingDiscountId("all");
-    const formData = new FormData();
-    formData.append("actionType", "applyToAll");
-    submit(formData, { method: "post" });
+  // Modal handlers
+  const openExclusionsModal = (discount: DiscountWithCodes) => {
+    setSelectedDiscount(discount);
+    setModalActive(true);
   };
 
-  const rows = discounts.map((discount) => [
-    <Text key={`title-${discount.id}`} as="span" fontWeight="semibold">
-      {discount.title}
-    </Text>,
-    <InlineStack key={`codes-${discount.id}`} gap="100" wrap={false}>
-      {discount.discount_codes.map((code) => (
-        <Badge key={code.code} tone="info">
-          {code.code}
-        </Badge>
-      ))}
-    </InlineStack>,
-    <Badge
-      key={`value-${discount.id}`}
-      tone={discount.value_type === "percentage" ? "success" : "attention"}
-    >
-      {discount.value_type === "percentage"
-        ? `${discount.value}%`
-        : `$${discount.value}`}
-    </Badge>,
-    <Text
-      key={`collections-${discount.id}`}
-      as="span"
-      variant="bodySm"
-      tone="subdued"
-    >
-      {discount.collections_count} collections
-    </Text>,
-    <Button
-      key={`button-${discount.id}`}
-      size="slim"
-      onClick={() => handleApplyToOne(discount.id)}
-      loading={loadingDiscountId === discount.id}
-    >
-      Apply Rules
-    </Button>,
-  ]);
+  const closeModal = () => {
+    setModalActive(false);
+    setSelectedDiscount(null);
+    // setModalMode('view'); // Currently not used
+  };
 
-  if (!hasActiveRule) {
+  const handleEditExclusions = (discountId: string) => {
+    console.log("🎯 [Navigation] Editing exclusions for discount:", discountId);
+    console.log("🔗 [Navigation] Target path:", `/app/configure/${discountId}`);
+    console.log("🔧 [Navigation] Navigate function available:", !!navigate);
+
+    setLoadingAction(`edit-${discountId}`);
+
+    // Naviga alla nuova rotta con parametro dinamico
+    if (navigate) {
+      console.log("🚀 [Navigation] Using navigate() function");
+      navigate(`/app/configure/${discountId}`);
+    } else {
+      console.log("🌐 [Navigation] Using window.location.href fallback");
+      window.location.href = `/app/configure/${discountId}`;
+    }
+  };
+
+  // Create enhanced table rows with integrated exclusions
+  const tableRows = discounts.map((discount) => {
+    const exclusions = getExclusionsSummary(discount.id);
+    const isLoading = loadingAction === `edit-${discount.id}`;
+
+    return [
+      // Discount Name & Details
+      <div key={`discount-${discount.id}`}>
+        <Text variant="bodyMd" fontWeight="semibold" as="p">
+          {discount.title}
+        </Text>
+        <Text variant="bodySm" tone="subdued" as="p">
+          {discount.discount_codes.length > 0
+            ? `${discount.discount_codes.length} code${discount.discount_codes.length > 1 ? "s" : ""}`
+            : "No codes"}
+        </Text>
+      </div>,
+
+      // Discount Value
+      <Badge key={`value-${discount.id}`} tone="info">
+        {discount.value_type === "percentage"
+          ? `${discount.value}%`
+          : `$${discount.value}`}
+      </Badge>,
+
+      // Exclusions Summary with Preview
+      <div key={`exclusions-${discount.id}`}>
+        {exclusions.count > 0 ? (
+          <div>
+            <Text variant="bodyMd" as="p">
+              {exclusions.text}
+            </Text>
+            <div style={{ marginTop: "4px" }}>
+              {exclusions.items.map((item, index) => (
+                <Text key={index} variant="bodySm" tone="subdued" as="p">
+                  {item.type === "collection" ? "📁" : "📦"} {item.name}
+                </Text>
+              ))}
+              {exclusions.count > 3 && (
+                <Text variant="bodySm" tone="subdued" as="p">
+                  + {exclusions.count - 3} more...
+                </Text>
+              )}
+            </div>
+          </div>
+        ) : (
+          <Text variant="bodyMd" tone="subdued" as="p">
+            No exclusions set
+          </Text>
+        )}
+      </div>,
+
+      // Actions
+      <ButtonGroup key={`actions-${discount.id}`}>
+        <Tooltip content="View all exclusions">
+          <Button
+            icon={ViewIcon}
+            onClick={() => openExclusionsModal(discount)}
+            accessibilityLabel="View exclusions"
+          />
+        </Tooltip>
+        <Button
+          icon={EditIcon}
+          variant="primary"
+          onClick={() => handleEditExclusions(discount.id)}
+          loading={isLoading}
+          accessibilityLabel="Edit exclusions"
+        >
+          {"Edit"}
+        </Button>
+      </ButtonGroup>,
+    ];
+  });
+
+  // Modal content for viewing exclusions
+  const renderExclusionsModal = () => {
+    if (!selectedDiscount) return null;
+
+    const rule = getDiscountRule(selectedDiscount.id);
+
     return (
-      <Page
-        title="Smart Discount Manager"
-        backAction={{ content: "Dashboard", onAction: () => navigate("/app") }}
+      <Modal
+        open={modalActive}
+        onClose={closeModal}
+        title={`Exclusions for "${selectedDiscount.title}"`}
+        primaryAction={{
+          content: "Edit Exclusions",
+          onAction: () => {
+            closeModal();
+            handleEditExclusions(selectedDiscount.id);
+          },
+        }}
         secondaryActions={[
           {
-            content: "Create Rules",
-            onAction: () => navigate("/app/rules"),
+            content: "Close",
+            onAction: closeModal,
           },
         ]}
       >
-        <Layout>
-          <Layout.Section>
-            <EmptyState
-              heading="No active exclusion rules"
-              action={{
-                content: "Create Rules",
-                onAction: () => navigate("/app/rules"),
-              }}
-              image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
-            >
-              <p>
-                You need to create exclusion rules before applying them to
-                discounts.
-              </p>
-            </EmptyState>
-          </Layout.Section>
-        </Layout>
-      </Page>
+        <Modal.Section>
+          {rule ? (
+            <BlockStack gap="400">
+              {rule.excludedCollections &&
+                rule.excludedCollections.length > 0 && (
+                  <div>
+                    <Text variant="headingSm" as="h3">
+                      Excluded Collections
+                    </Text>
+                    <List type="bullet">
+                      {rule.excludedCollections.map((collection) => (
+                        <List.Item key={collection.id}>
+                          {collection.title}
+                        </List.Item>
+                      ))}
+                    </List>
+                  </div>
+                )}
+
+              {rule.excludedProducts && rule.excludedProducts.length > 0 && (
+                <div>
+                  <Text variant="headingSm" as="h3">
+                    Excluded Products
+                  </Text>
+                  <List type="bullet">
+                    {rule.excludedProducts.map((product) => (
+                      <List.Item key={product.id}>{product.title}</List.Item>
+                    ))}
+                  </List>
+                </div>
+              )}
+
+              {(!rule.excludedCollections ||
+                rule.excludedCollections.length === 0) &&
+                (!rule.excludedProducts ||
+                  rule.excludedProducts.length === 0) && (
+                  <Text tone="subdued" as="p">
+                    No exclusions configured yet. Click &quot;Edit
+                    Exclusions&quot; to get started.
+                  </Text>
+                )}
+            </BlockStack>
+          ) : (
+            <Text tone="subdued" as="p">
+              No exclusions configured yet. Click &quot;Edit Exclusions&quot; to
+              get started.
+            </Text>
+          )}
+        </Modal.Section>
+      </Modal>
     );
-  }
+  };
 
   if (discounts.length === 0) {
     return (
       <Page
-        title="Smart Discount Manager"
-        backAction={{ content: "Dashboard", onAction: () => navigate("/app") }}
-        secondaryActions={[
-          {
-            content: "Edit Rules",
-            onAction: () => navigate("/app/rules"),
-          },
-        ]}
+        title="Discount Rules"
+        backAction={{
+          content: "Dashboard",
+          onAction: () =>
+            navigate ? navigate("/app") : (window.location.href = "/app"),
+        }}
       >
         <Layout>
           <Layout.Section>
             <EmptyState
               heading="No discount codes found"
+              action={{
+                content: "Go to Shopify Admin",
+                url: "admin/discounts",
+                external: true,
+              }}
               image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
             >
               <p>
                 Create discount codes in your Shopify admin, then return here to
-                apply your exclusion rules.
+                configure exclusion rules for each discount.
               </p>
             </EmptyState>
           </Layout.Section>
@@ -245,93 +418,167 @@ export default function DiscountsPage() {
   }
 
   return (
-    <Page
-      title="Smart Discount Manager"
-      backAction={{ content: "Dashboard", onAction: () => navigate("/app") }}
-      primaryAction={{
-        content: "Apply Rules to All",
-        onAction: handleApplyToAll,
-        loading: loadingDiscountId === "all",
-        disabled: discounts.length === 0,
-      }}
-      secondaryActions={[
-        {
-          content: "Edit Rules",
-          onAction: () => navigate("/app/rules"),
-        },
-      ]}
-    >
-      <Layout>
-        {actionData && showBanner && (
-          <Layout.Section>
-            <Banner
-              tone={actionData.success ? "success" : "critical"}
-              onDismiss={() => setShowBanner(false)}
-            >
-              <p>{actionData.message}</p>
-              {actionData.details && (
-                <BlockStack gap="200">
-                  <Text as="p" variant="bodySm">
-                    Success:{" "}
-                    {(actionData.details as { success: number }).success} /
-                    Failed: {(actionData.details as { failed: number }).failed}
-                  </Text>
-                </BlockStack>
-              )}
-            </Banner>
-          </Layout.Section>
-        )}
+    <>
+      <Page
+        title="Discount Exclusions Manager"
+        subtitle={`Manage exclusions for ${discounts.length} discount${discounts.length > 1 ? "s" : ""}`}
+        backAction={{
+          content: "Dashboard",
+          onAction: () =>
+            navigate ? navigate("/app") : (window.location.href = "/app"),
+        }}
+        primaryAction={{
+          content: "New Rule",
+          onAction: () =>
+            navigate
+              ? navigate("/app/configure")
+              : (window.location.href = "/app/configure"),
+        }}
+      >
+        <Layout>
+          {/* Action Banner */}
+          {actionData && showBanner && (
+            <Layout.Section>
+              <Banner
+                tone={actionData.success ? "success" : "critical"}
+                onDismiss={() => setShowBanner(false)}
+              >
+                <p>{actionData.message}</p>
+              </Banner>
+            </Layout.Section>
+          )}
 
+          {/* Main Table Section */}
+          <Layout.Section>
+            <Card>
+              <BlockStack gap="400">
+                <div>
+                  <Text variant="headingMd" as="h2">
+                    Discounts & Exclusions
+                  </Text>
+                  <Text variant="bodyMd" tone="subdued" as="p">
+                    View and manage which products or collections are excluded
+                    from each discount. Click &quot;Configure Exclusions&quot;
+                    above to set up new exclusions, or use the table actions to
+                    view or edit existing ones.
+                  </Text>
+                </div>
+
+                <DataTable
+                  columnContentTypes={["text", "text", "text", "text"]}
+                  headings={[
+                    "Discount",
+                    "Value",
+                    "Current Exclusions",
+                    "Actions",
+                  ]}
+                  rows={tableRows}
+                />
+              </BlockStack>
+            </Card>
+          </Layout.Section>
+
+          {/* Summary Stats */}
+          <Layout.Section>
+            <InlineStack gap="400">
+              <Card>
+                <div style={{ padding: "16px", textAlign: "center" }}>
+                  <BlockStack gap="100">
+                    <Text variant="headingMd" as="h3">
+                      {
+                        discounts.filter((d) => {
+                          const rule = getDiscountRule(d.id);
+                          return (
+                            rule &&
+                            (rule.excludedCollections?.length || 0) +
+                              (rule.excludedProducts?.length || 0) >
+                              0
+                          );
+                        }).length
+                      }
+                    </Text>
+                    <Text variant="bodyMd" tone="subdued" as="p">
+                      With Exclusions
+                    </Text>
+                  </BlockStack>
+                </div>
+              </Card>
+              <Card>
+                <div style={{ padding: "16px", textAlign: "center" }}>
+                  <BlockStack gap="100">
+                    <Text variant="headingMd" as="h3">
+                      {discounts.filter((d) => !getDiscountRule(d.id)).length}
+                    </Text>
+                    <Text variant="bodyMd" tone="subdued" as="p">
+                      Need Setup
+                    </Text>
+                  </BlockStack>
+                </div>
+              </Card>
+              <Card>
+                <div style={{ padding: "16px", textAlign: "center" }}>
+                  <BlockStack gap="100">
+                    <Text variant="headingMd" as="h3">
+                      {rules.reduce(
+                        (sum, rule) =>
+                          sum +
+                          (rule.excludedCollections?.length || 0) +
+                          (rule.excludedProducts?.length || 0),
+                        0,
+                      )}
+                    </Text>
+                    <Text variant="bodyMd" tone="subdued" as="p">
+                      Total Exclusions
+                    </Text>
+                  </BlockStack>
+                </div>
+              </Card>
+            </InlineStack>
+          </Layout.Section>
+        </Layout>
+      </Page>
+
+      {/* Exclusions Preview Modal */}
+      {renderExclusionsModal()}
+    </>
+  );
+}
+
+export function ErrorBoundary() {
+  console.error("ErrorBoundary triggered on discounts page");
+
+  return (
+    <Page title="Discounts & Rules">
+      <Layout>
         <Layout.Section>
           <Card>
             <BlockStack gap="400">
-              <InlineStack align="space-between" blockAlign="center">
-                <BlockStack gap="100">
-                  <Text variant="headingMd" as="h2">
-                    Your Discount Codes
-                  </Text>
-                  <Text variant="bodySm" tone="subdued" as="p">
-                    Apply your exclusion rules to existing discount codes
-                  </Text>
-                </BlockStack>
-                <Badge tone="info">{`${discounts.length} total`}</Badge>
-              </InlineStack>
-
-              <DataTable
-                columnContentTypes={["text", "text", "text", "text", "text"]}
-                headings={[
-                  "Discount Name",
-                  "Codes",
-                  "Value",
-                  "Collections",
-                  "Action",
-                ]}
-                rows={rows}
-              />
-            </BlockStack>
-          </Card>
-        </Layout.Section>
-
-        <Layout.Section>
-          <Card>
-            <BlockStack gap="300">
-              <Text variant="headingSm" as="h3">
-                💡 How it works
+              <Text variant="headingMd" as="h2">
+                Something went wrong
               </Text>
-              <BlockStack gap="200">
-                <Text variant="bodyMd" as="p">
-                  • Click <strong>Apply Rules</strong> on individual discounts
-                  to apply your exclusion rules
-                </Text>
-                <Text variant="bodyMd" as="p">
-                  • Use <strong>Apply Rules to All</strong> to update all
-                  discounts at once
-                </Text>
-                <Text variant="bodyMd" as="p">
-                  • Excluded collections will be automatically removed from the
-                  discount&apos;s eligible items
-                </Text>
-              </BlockStack>
+              <Text as="p">
+                There was an error loading the discounts page. This could be due
+                to:
+              </Text>
+              <List type="bullet">
+                <List.Item>Database connection issues</List.Item>
+                <List.Item>Shopify API authentication problems</List.Item>
+                <List.Item>Missing environment configuration</List.Item>
+              </List>
+              <Text as="p" tone="subdued">
+                Check the browser console and server logs for more details.
+              </Text>
+              <InlineStack gap="200">
+                <Button
+                  onClick={() => (window.location.href = "/app")}
+                  variant="primary"
+                >
+                  Go to Dashboard
+                </Button>
+                <Button onClick={() => window.location.reload()}>
+                  Refresh Page
+                </Button>
+              </InlineStack>
             </BlockStack>
           </Card>
         </Layout.Section>

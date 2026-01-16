@@ -1,11 +1,29 @@
-import { discountRuleHelpers } from "./db.server";
+// Shopify Admin API Types
+interface ShopifyAdmin {
+  graphql: (
+    query: string,
+    variables?: Record<string, unknown>,
+  ) => Promise<{
+    json: () => Promise<unknown>;
+  }>;
+}
 
-// Types - Using flexible type for Shopify admin
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AdminType = any;
+interface DiscountValue {
+  percentage?: number;
+  amount?: {
+    amount: string;
+    currencyCode: string;
+  };
+}
 
-// Legacy PriceRule interface - non più utilizzata
-// interface PriceRule { ... }
+interface CustomerGets {
+  value: DiscountValue;
+}
+
+interface DiscountConfiguration {
+  customerGets: CustomerGets;
+  appliesOncePerCustomer?: boolean;
+}
 
 interface CollectionEdge {
   node: {
@@ -22,98 +40,182 @@ interface GraphQLResponse {
   };
 }
 
-// Interfaces per legacy price rules - non più utilizzate nelle moderne API
-// interface PriceRulesResponse { ... }
-// interface DiscountCodesResponse { ... }
+interface DiscountData {
+  id: string;
+  gid?: string;
+  title: string;
+  value_type: string;
+  value: string;
+  discount_codes: Array<{ code: string }>;
+  collections_count: number;
+  target_selection: string;
+  type: string;
+  status: string;
+}
+
+interface GraphQLDiscountResponse {
+  data: {
+    discountNodes: {
+      edges: Array<{
+        node: {
+          id: string;
+          discount: {
+            __typename: string;
+            title: string;
+            status: string;
+            codes?: {
+              nodes: Array<{
+                code: string;
+              }>;
+            };
+            customerGets?: {
+              value: {
+                percentage?: number;
+                amount?: {
+                  amount: string;
+                };
+              };
+              items?: {
+                collections?: {
+                  nodes: Array<{
+                    id: string;
+                    title: string;
+                  }>;
+                };
+              };
+            };
+          };
+        };
+      }>;
+    };
+  };
+  errors?: Array<{ message: string }>;
+}
+
+interface GetDiscountResponse {
+  data?: {
+    discountNode?: {
+      id: string;
+      discount?: {
+        __typename: string;
+        title?: string;
+        customerGets?: {
+          __typename: string;
+          items?:
+            | Array<{
+                __typename: string;
+                collections?: {
+                  nodes: Array<{
+                    id: string;
+                    title: string;
+                  }>;
+                };
+                products?: {
+                  nodes: Array<{
+                    id: string;
+                    title: string;
+                  }>;
+                };
+              }>
+            | {
+                collections?: {
+                  nodes: Array<{
+                    id: string;
+                    title: string;
+                  }>;
+                };
+              };
+        };
+      };
+    };
+  };
+  errors?: Array<{ message: string }>;
+}
+
+interface GetFullDiscountResponse {
+  data?: {
+    discountNode?: {
+      discount?: {
+        title?: string;
+        summary?: string;
+        customerGets?: {
+          value: {
+            percentage?: number;
+            amount?: {
+              amount: string;
+              currencyCode: string;
+            };
+          };
+          items?: {
+            collections?: {
+              nodes: Array<{
+                id: string;
+              }>;
+            };
+            products?: {
+              nodes: Array<{
+                id: string;
+              }>;
+            };
+          };
+        };
+        usageLimit?: number;
+        appliesOncePerCustomer?: boolean;
+        startsAt?: string;
+        endsAt?: string;
+      };
+    };
+  };
+  errors?: Array<{ message: string }>;
+}
+
+interface DiscountMutationResponse {
+  data?: {
+    discountCodeBasicUpdate?: {
+      userErrors: Array<{
+        field?: string[];
+        message: string;
+      }>;
+    };
+    discountAutomaticBasicUpdate?: {
+      userErrors: Array<{
+        field?: string[];
+        message: string;
+      }>;
+    };
+  };
+  errors?: Array<{ message: string }>;
+}
+interface DiscountMutationResponse {
+  data?: {
+    discountCodeBasicUpdate?: {
+      userErrors: Array<{
+        field?: string[];
+        message: string;
+      }>;
+    };
+    discountAutomaticBasicUpdate?: {
+      userErrors: Array<{
+        field?: string[];
+        message: string;
+      }>;
+    };
+  };
+  errors?: Array<{ message: string }>;
+}
 
 // Helper: Estrai numeric ID da Shopify GID
 function extractNumericId(gid: string): string {
-  // "gid://shopify/Collection/123456789" -> "123456789"
   return gid.split("/").pop() || "";
 }
-
-// Helper: Converte numeric ID in Shopify GID
-function createCollectionGid(numericId: string): string {
-  return `gid://shopify/Collection/${numericId}`;
-}
-
-/**
- * Applica le mutation GraphQL per aggiornare un discount con le collezioni
- */
-async function applyDiscountMutation(
-  admin: AdminType,
-  discount: { id: string; title: string; type: string; gid?: string },
-  entitledCollectionIds: string[],
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  allCollections: Array<{ id: string; title: string }>,
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    // Use the full GID if available, otherwise construct it
-    const discountGid =
-      discount.gid || `gid://shopify/DiscountNode/${discount.id}`;
-    const collectionGids = entitledCollectionIds.map((id) =>
-      createCollectionGid(id),
-    );
-
-    // Determina il tipo di mutation basandosi sul tipo di discount
-    switch (discount.type) {
-      case "DiscountCodeBasic":
-        return await updateDiscountCodeBasic(
-          admin,
-          discountGid,
-          collectionGids,
-        );
-
-      case "DiscountAutomaticBasic":
-        return await updateDiscountAutomaticBasic(
-          admin,
-          discountGid,
-          collectionGids,
-        );
-
-      case "DiscountCodeBxgy":
-      case "DiscountAutomaticBxgy":
-        return {
-          success: false,
-          error:
-            "BXGY discounts use different collection logic (customerBuys vs customerGets). Not compatible with simple collection exclusion rules.",
-        };
-
-      case "DiscountCodeFreeShipping":
-      case "DiscountAutomaticFreeShipping":
-        return {
-          success: false,
-          error: "Free shipping discounts don't use collection restrictions",
-        };
-
-      default:
-        return {
-          success: false,
-          error: `Unsupported discount type: ${discount.type}`,
-        };
-    }
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
-    };
-  }
-}
-
 /**
  * Recupera le collezioni attualmente applicate a un discount
  */
 async function getCurrentDiscountCollections(
-  admin: AdminType,
+  admin: ShopifyAdmin,
   discountId: string,
 ): Promise<string[]> {
   try {
-    // console.log(
-    //   "🔍 DEBUG: Getting current collections for discount:",
-    //   discountId,
-    // );
-
-    // Convert DiscountCodeNode/DiscountAutomaticNode to DiscountNode for queries
     let queryDiscountId = discountId;
     if (discountId.includes("DiscountCodeNode")) {
       queryDiscountId = discountId.replace("DiscountCodeNode", "DiscountNode");
@@ -123,8 +225,6 @@ async function getCurrentDiscountCollections(
         "DiscountNode",
       );
     }
-
-    // console.log("🔍 DEBUG: Using query ID:", queryDiscountId);
 
     const query = `#graphql
       query getDiscount($id: ID!) {
@@ -189,12 +289,7 @@ async function getCurrentDiscountCollections(
     const response = await admin.graphql(query, {
       variables: { id: queryDiscountId },
     });
-    const result = await response.json();
-
-    // console.log(
-    //   "📊 DEBUG: Full discount query response:",
-    //   JSON.stringify(result, null, 2),
-    // );
+    const result = (await response.json()) as GetDiscountResponse;
 
     if (result.errors) {
       return [];
@@ -205,34 +300,15 @@ async function getCurrentDiscountCollections(
       return [];
     }
 
-    // console.log("🔍 DEBUG: Discount node found:", discountNode.id);
-    // console.log("🔍 DEBUG: Discount type:", discountNode.discount?.__typename);
-
     const customerGets = discountNode.discount?.customerGets;
     if (!customerGets) {
-      // console.log("⚠️ DEBUG: No customerGets found");
       return [];
     }
 
-    // console.log(
-    //   "🔍 DEBUG: CustomerGets structure:",
-    //   JSON.stringify(customerGets, null, 2),
-    // );
-
-    // Handle different customerGets structures
     let collections: Array<{ id: string; title?: string }> = [];
 
     if (Array.isArray(customerGets.items)) {
-      // Multiple items in array
-      // console.log(
-      //   "🔍 DEBUG: CustomerGets.items is array with length:",
-      //   customerGets.items.length,
-      // );
       for (const item of customerGets.items) {
-        // console.log(
-        //   "🔍 DEBUG: Processing item:",
-        //   JSON.stringify(item, null, 2),
-        // );
         if (
           item.__typename === "DiscountCollections" &&
           item.collections?.nodes
@@ -241,18 +317,11 @@ async function getCurrentDiscountCollections(
         }
       }
     } else if (customerGets.items?.collections?.nodes) {
-      // Single collections item
-      // console.log("🔍 DEBUG: CustomerGets.items has collections directly");
       collections = customerGets.items.collections.nodes;
     }
 
-    // console.log(
-    //   "🔍 DEBUG: Found collections:",
-    //   collections.map((c) => `${c.id} (${c.title})`),
-    // );
     return collections.map((col: { id: string }) => col.id);
   } catch (error) {
-    // Error getting current discount collections
     return [];
   }
 }
@@ -261,17 +330,11 @@ async function getCurrentDiscountCollections(
  * Rimuove collezioni specifiche da un discount
  */
 async function removeCollectionsFromDiscount(
-  admin: AdminType,
+  admin: ShopifyAdmin,
   discountId: string,
-  collectionGids: string[],
   discountType: string,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // console.log("🗑️ DEBUG: Starting removeCollectionsFromDiscount");
-    // console.log("🗑️ DEBUG: Discount ID:", discountId);
-    // console.log("🗑️ DEBUG: Discount Type:", discountType);
-    // console.log("🗑️ DEBUG: Collections to remove:", collectionGids);
-
     const mutation =
       discountType === "DiscountCodeBasic"
         ? `#graphql
@@ -336,7 +399,6 @@ async function removeCollectionsFromDiscount(
         ? "basicCodeDiscount"
         : "automaticBasicDiscount";
 
-    // Get the current discount config to determine the correct value structure
     const fullConfig = await getFullDiscountConfig(admin, discountId);
     if (!fullConfig) {
       return {
@@ -345,23 +407,20 @@ async function removeCollectionsFromDiscount(
       };
     }
 
-    // Convert value structure for mutation (same logic as replaceDiscountCollections)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fullConfigAny = fullConfig as any;
+    const discountConfig = fullConfig as unknown as DiscountConfiguration;
     let mutationValue: Record<string, unknown>;
-    if (fullConfigAny.customerGets.value.percentage !== undefined) {
+    if (discountConfig.customerGets.value.percentage !== undefined) {
       mutationValue = {
-        percentage: fullConfigAny.customerGets.value.percentage,
+        percentage: discountConfig.customerGets.value.percentage,
       };
-    } else if (fullConfigAny.customerGets.value.amount) {
+    } else if (discountConfig.customerGets.value.amount) {
       mutationValue = {
         discountAmount: {
-          amount: fullConfigAny.customerGets.value.amount.amount,
-          appliesOnEachItem: false, // Default value
+          amount: discountConfig.customerGets.value.amount.amount,
+          appliesOnEachItem: false,
         },
       };
     } else {
-      // Fallback to 10% if we can't determine the discount structure
       mutationValue = {
         percentage: 10,
       };
@@ -373,25 +432,16 @@ async function removeCollectionsFromDiscount(
         customerGets: {
           value: mutationValue,
           items: {
-            all: true, // Set to true to clear all collections
+            all: true,
           },
         },
       },
     };
 
-    // console.log("🗑️ DEBUG: Mutation being executed:");
-    // console.log(mutation);
-    // console.log("🗑️ DEBUG: Variables being sent:");
-    // console.log(JSON.stringify(variables, null, 2));
-
     const response = await admin.graphql(mutation, { variables });
-    const result = await response.json();
-
-    // console.log("📊 DEBUG: Complete remove result:");
-    // console.log(JSON.stringify(result, null, 2));
+    const result = (await response.json()) as DiscountMutationResponse;
 
     if (result.errors) {
-      console.error("❌ DEBUG: GraphQL errors in remove:", result.errors);
       return {
         success: false,
         error: result.errors
@@ -400,33 +450,25 @@ async function removeCollectionsFromDiscount(
       };
     }
 
-    const mutationKey =
+    const mutationKey = (
       discountType === "DiscountCodeBasic"
         ? "discountCodeBasicUpdate"
-        : "discountAutomaticBasicUpdate";
+        : "discountAutomaticBasicUpdate"
+    ) as keyof NonNullable<DiscountMutationResponse["data"]>;
 
-    // console.log("🔍 DEBUG: Checking for userErrors in key:", mutationKey);
+    const userErrors = result.data?.[mutationKey]?.userErrors;
 
-    if (result.data?.[mutationKey]?.userErrors?.length > 0) {
-      console.error(
-        "❌ DEBUG: User errors in remove:",
-        result.data[mutationKey].userErrors,
-      );
+    if (userErrors && userErrors.length > 0) {
       return {
         success: false,
-        error: result.data[mutationKey].userErrors
+        error: userErrors
           .map((err: { message: string }) => err.message)
           .join(", "),
       };
     }
 
-    // console.log("✅ DEBUG: Remove operation completed successfully");
     return { success: true };
   } catch (error) {
-    console.error(
-      "❌ DEBUG: Exception in removeCollectionsFromDiscount:",
-      error,
-    );
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error",
@@ -438,11 +480,10 @@ async function removeCollectionsFromDiscount(
  * Recupera la configurazione completa del discount
  */
 async function getFullDiscountConfig(
-  admin: AdminType,
+  admin: ShopifyAdmin,
   discountId: string,
 ): Promise<Record<string, unknown> | null> {
   try {
-    // Convert to DiscountNode for query
     let queryId = discountId;
     if (discountId.includes("DiscountCodeNode")) {
       queryId = discountId.replace("DiscountCodeNode", "DiscountNode");
@@ -496,16 +537,10 @@ async function getFullDiscountConfig(
       }`;
 
     const response = await admin.graphql(query, { variables: { id: queryId } });
-    const result = await response.json();
-
-    // console.log(
-    //   "🔍 DEBUG: Full discount config:",
-    //   JSON.stringify(result, null, 2),
-    // );
+    const result = (await response.json()) as GetFullDiscountResponse;
 
     return result.data?.discountNode?.discount || null;
   } catch (error) {
-    console.error("❌ Error getting full discount config:", error);
     return null;
   }
 }
@@ -514,13 +549,12 @@ async function getFullDiscountConfig(
  * Aggiorna il discount con la configurazione completa mantenendo tutto tranne le collezioni
  */
 async function replaceDiscountCollections(
-  admin: AdminType,
+  admin: ShopifyAdmin,
   discountId: string,
   collectionGids: string[],
   discountType: string,
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // console.log("🔄 DEBUG: Getting full discount config first");
     const fullConfig = await getFullDiscountConfig(admin, discountId);
 
     if (!fullConfig) {
@@ -534,8 +568,6 @@ async function replaceDiscountCollections(
       admin,
       discountId,
     );
-    // console.log("📊 DEBUG: Current collections:", currentCollectionsToReplace);
-    // console.log("🔄 DEBUG: Building complete update with new collections");
 
     const mutation =
       discountType === "DiscountCodeBasic"
@@ -563,25 +595,21 @@ async function replaceDiscountCollections(
         ? "basicCodeDiscount"
         : "automaticBasicDiscount";
 
-    // Build complete customerGets structure from existing config
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fullConfigAny = fullConfig as any;
+    const discountConfig = fullConfig as unknown as DiscountConfiguration;
 
-    // Convert value structure for mutation (different from query structure)
     let mutationValue: Record<string, unknown>;
-    if (fullConfigAny.customerGets.value.percentage !== undefined) {
+    if (discountConfig.customerGets.value.percentage !== undefined) {
       mutationValue = {
-        percentage: fullConfigAny.customerGets.value.percentage,
+        percentage: discountConfig.customerGets.value.percentage,
       };
-    } else if (fullConfigAny.customerGets.value.amount) {
+    } else if (discountConfig.customerGets.value.amount) {
       mutationValue = {
         discountAmount: {
-          amount: fullConfigAny.customerGets.value.amount.amount,
-          appliesOnEachItem: false, // Default value
+          amount: discountConfig.customerGets.value.amount.amount,
+          appliesOnEachItem: false,
         },
       };
     } else {
-      // Fallback to 10% if we can't determine the discount structure
       mutationValue = {
         percentage: 10,
       };
@@ -592,67 +620,47 @@ async function replaceDiscountCollections(
       items:
         collectionGids.length > 0
           ? {
-              all: false, // Only set all to false when we have collections to add
+              all: false,
               collections: {
-                add: collectionGids, // Only use add to set collections (after removing in separate step)
+                add: collectionGids,
               },
             }
           : {
-              all: true, // If no collections to add, set all to true to clear everything
+              all: true,
             },
     };
 
-    // Step 1: Remove existing collections first
-    // const currentCollections =
-    //   fullConfigAny.customerGets?.items?.collections?.nodes || [];
     if (currentCollectionsToReplace.length > 0) {
-      // console.log("🗑️ DEBUG: Removing existing collections first");
-
       const removeVariables = {
         id: discountId,
         [variableKey]: {
           customerGets: {
-            value: mutationValue, // Use converted value structure, not original
+            value: mutationValue,
             items: {
-              all: true, // Set all to true to clear all collections - simpler approach
+              all: true,
             },
           },
         },
       };
 
-      // console.log(
-      //   "🗑️ DEBUG: Remove variables:",
-      //   JSON.stringify(removeVariables, null, 2),
-      // );
-
       const removeResponse = await admin.graphql(mutation, {
         variables: removeVariables,
       });
-      const removeResult = await removeResponse.json();
+      const removeResult =
+        (await removeResponse.json()) as DiscountMutationResponse;
 
-      // console.log(
-      //   "📊 DEBUG: Remove result:",
-      //   JSON.stringify(removeResult, null, 2),
-      // );
-
-      // Check for errors but continue anyway - sometimes remove fails but add works
       if (removeResult.errors) {
         console.log("⚠️ WARNING: Remove failed, continuing with add...");
       }
     }
 
-    // Step 2: Add new collections
-    // console.log("➕ DEBUG: Adding new collections");
-
-    // Build the discount variables with correct structure
     const discountVariables: Record<string, unknown> = {
       customerGets,
     };
 
-    // Add appliesOncePerCustomer at the discount level, not in customerGets
-    if (fullConfigAny.appliesOncePerCustomer !== undefined) {
+    if (discountConfig.appliesOncePerCustomer !== undefined) {
       discountVariables.appliesOncePerCustomer =
-        fullConfigAny.appliesOncePerCustomer;
+        discountConfig.appliesOncePerCustomer;
     }
 
     const variables = {
@@ -660,15 +668,8 @@ async function replaceDiscountCollections(
       [variableKey]: discountVariables,
     };
 
-    // console.log(
-    //   "🔄 Setting collections with complete customerGets structure:",
-    //   JSON.stringify(variables, null, 2),
-    // );
-
     const response = await admin.graphql(mutation, { variables });
-    const result = await response.json();
-
-    // console.log("📊 Set collections result:", JSON.stringify(result, null, 2));
+    const result = (await response.json()) as DiscountMutationResponse;
 
     if (result.errors) {
       return {
@@ -679,14 +680,16 @@ async function replaceDiscountCollections(
       };
     }
 
-    const mutationKey =
+    const mutationKey = (
       discountType === "DiscountCodeBasic"
         ? "discountCodeBasicUpdate"
-        : "discountAutomaticBasicUpdate";
-    if (result.data?.[mutationKey]?.userErrors?.length > 0) {
+        : "discountAutomaticBasicUpdate"
+    ) as keyof NonNullable<DiscountMutationResponse["data"]>;
+    const userErrors = result.data?.[mutationKey]?.userErrors;
+    if (userErrors && userErrors.length > 0) {
       return {
         success: false,
-        error: result.data[mutationKey].userErrors
+        error: userErrors
           .map((err: { message: string }) => err.message)
           .join(", "),
       };
@@ -694,7 +697,6 @@ async function replaceDiscountCollections(
 
     return { success: true };
   } catch (error) {
-    console.error("Error setting collections for discount:", error);
     return {
       success: false,
       error: error instanceof Error ? error.message : "Unknown error",
@@ -703,46 +705,10 @@ async function replaceDiscountCollections(
 }
 
 /**
- * Ispeziona lo schema GraphQL per la mutation DiscountCodeBasicUpdate
- */
-async function inspectDiscountMutationSchema(admin: AdminType) {
-  try {
-    const introspectionQuery = `#graphql
-      query {
-        __type(name: "DiscountCodeBasicUpdatePayload") {
-          name
-          fields {
-            name
-            type {
-              name
-              kind
-              ofType {
-                name
-              }
-            }
-          }
-        }
-      }`;
-
-    // console.log("🔍 Inspecting DiscountCodeBasicUpdatePayload schema...");
-    const response = await admin.graphql(introspectionQuery);
-    const result = await response.json();
-    // console.log(
-    //   "📊 Schema inspection result:",
-    //   JSON.stringify(result, null, 2),
-    // );
-    return result;
-  } catch (error) {
-    console.error("Error inspecting schema:", error);
-    return null;
-  }
-}
-
-/**
  * Funzione di debug per testare step-by-step il processo di update delle collezioni
  */
 export async function debugDiscountCollectionUpdate(
-  admin: AdminType,
+  admin: ShopifyAdmin,
   discountId: string,
   discountType: string,
 ): Promise<{ success: boolean; details: Record<string, unknown> }> {
@@ -760,8 +726,6 @@ export async function debugDiscountCollectionUpdate(
   };
 
   try {
-    // Step 1: Get initial state
-    console.log("🔍 DEBUG Step 1: Getting initial collections");
     const initialCollections = await getCurrentDiscountCollections(
       admin,
       discountId,
@@ -769,14 +733,11 @@ export async function debugDiscountCollectionUpdate(
     details.initialCollections = initialCollections;
     console.log("📊 DEBUG: Initial collections found:", initialCollections);
 
-    // Step 2: Try to remove one collection if any exist
     if (initialCollections.length > 0) {
-      console.log("🗑️ DEBUG Step 2: Attempting to remove first collection");
       const collectionToRemove = [initialCollections[0]];
       const removeResult = await removeCollectionsFromDiscount(
         admin,
         discountId,
-        collectionToRemove,
         discountType,
       );
       details.removeAttempt = {
@@ -785,8 +746,6 @@ export async function debugDiscountCollectionUpdate(
       };
       console.log("📊 DEBUG: Remove attempt result:", removeResult);
 
-      // Step 3: Check state after remove
-      console.log("🔍 DEBUG Step 3: Getting collections after remove attempt");
       const afterRemoveCollections = await getCurrentDiscountCollections(
         admin,
         discountId,
@@ -798,11 +757,7 @@ export async function debugDiscountCollectionUpdate(
       );
     }
 
-    // Step 4: Try to replace collections completely
-    console.log(
-      "🔄 DEBUG Step 4: Attempting to replace collections completely",
-    );
-    const testCollectionGids = ["gid://shopify/Collection/351475990677"]; // Use the existing collection
+    const testCollectionGids = ["gid://shopify/Collection/351475990677"];
     const addResult = await replaceDiscountCollections(
       admin,
       discountId,
@@ -812,8 +767,6 @@ export async function debugDiscountCollectionUpdate(
     details.addAttempt = { collections: testCollectionGids, result: addResult };
     console.log("📊 DEBUG: Add attempt result:", addResult);
 
-    // Step 5: Final state
-    console.log("🔍 DEBUG Step 5: Getting final collections");
     const finalCollections = await getCurrentDiscountCollections(
       admin,
       discountId,
@@ -830,123 +783,9 @@ export async function debugDiscountCollectionUpdate(
 }
 
 /**
- * Aggiorna un DiscountCodeBasic con le collezioni specificate
- * Implementa un approccio in due fasi: rimuovi tutte + aggiungi quelle desiderate
- */
-async function updateDiscountCodeBasic(
-  admin: AdminType,
-  discountId: string,
-  collectionGids: string[],
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    // Primo: ispeziona lo schema per capire i campi disponibili
-    await inspectDiscountMutationSchema(admin);
-
-    // Fase 1: Recupera le collezioni attuali del discount
-    const currentCollections = await getCurrentDiscountCollections(
-      admin,
-      discountId,
-    );
-    console.log("📊 DEBUG: Current collections:", currentCollections);
-    console.log("🔄 DEBUG: Target collections to set:", collectionGids);
-
-    if (collectionGids.length === 0) {
-      console.log(
-        "⚠️ DEBUG: No target collections - will exclude ALL collections (items: { all: true })",
-      );
-    } else {
-      console.log(
-        `✅ DEBUG: Will set ${collectionGids.length} specific collections`,
-      );
-    }
-    // Fase 2: Se ci sono collezioni esistenti, rimuovile prima
-    if (currentCollections.length > 0) {
-      console.log("�️ Removing existing collections:", currentCollections);
-      const removeResult = await removeCollectionsFromDiscount(
-        admin,
-        discountId,
-        currentCollections,
-        "DiscountCodeBasic",
-      );
-      if (!removeResult.success) {
-        console.log(
-          "❌ Failed to remove existing collections, proceeding anyway...",
-        );
-      }
-    }
-
-    // Fase 3: Sostituisci completamente le collezioni
-    console.log("🔄 Replacing collections completely:", collectionGids);
-    return await replaceDiscountCollections(
-      admin,
-      discountId,
-      collectionGids,
-      "DiscountCodeBasic",
-    );
-  } catch (error) {
-    console.error("Error updating DiscountCodeBasic:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
-    };
-  }
-}
-
-/**
- * Aggiorna un DiscountAutomaticBasic con le collezioni specificate
- * Implementa un approccio in due fasi: rimuovi tutte + aggiungi quelle desiderate
- */
-async function updateDiscountAutomaticBasic(
-  admin: AdminType,
-  discountId: string,
-  collectionGids: string[],
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    // Fase 1: Recupera le collezioni attuali del discount
-    const currentCollections = await getCurrentDiscountCollections(
-      admin,
-      discountId,
-    );
-
-    // Fase 2: Se ci sono collezioni esistenti, rimuovile prima
-    if (currentCollections.length > 0) {
-      console.log("🗑️ Removing existing collections:", currentCollections);
-      const removeResult = await removeCollectionsFromDiscount(
-        admin,
-        discountId,
-        currentCollections,
-        "DiscountAutomaticBasic",
-      );
-      if (!removeResult.success) {
-        console.log(
-          "❌ Failed to remove existing collections, proceeding anyway...",
-        );
-      }
-    }
-
-    // Fase 3: Sostituisci completamente le collezioni
-    console.log("🔄 Replacing collections completely:", collectionGids);
-    return await replaceDiscountCollections(
-      admin,
-      discountId,
-      collectionGids,
-      "DiscountAutomaticBasic",
-    );
-
-    return { success: true };
-  } catch (error) {
-    console.error("Error updating DiscountAutomaticBasic:", error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Unknown error",
-    };
-  }
-}
-
-/**
  * Fetch tutte le collections dello shop
  */
-export async function getAllCollections(admin: AdminType) {
+export async function getAllCollections(admin: ShopifyAdmin) {
   const response = await admin.graphql(
     `#graphql
       query {
@@ -969,358 +808,18 @@ export async function getAllCollections(admin: AdminType) {
 }
 
 /**
- * Applica le regole di esclusione SOLO alle collezioni specificate (non a tutte le collezioni dello shop)
- * Questa funzione rispetta le collezioni già configurate nel discount
- */
-async function applyRulesToCollections(
-  shop: string,
-  collections: Array<{ id: string; title: string }>,
-): Promise<string[]> {
-  // Filter out invalid collections
-  const validCollections = collections.filter(
-    (col) => col.id && col.id.trim() !== "" && col.title !== undefined,
-  );
-
-  console.log(
-    `🎯 Applying rules to ${validCollections.length} existing discount collections (not all shop collections)`,
-  );
-
-  const rule = await discountRuleHelpers.getActiveRule(shop);
-
-  if (!rule || rule.excludedCollections.length === 0) {
-    // Nessuna regola = mantieni le collezioni originali del discount
-    return validCollections
-      .map((col) => {
-        try {
-          return extractNumericId(col.id);
-        } catch (error) {
-          console.warn(`⚠️ Invalid collection ID: ${col.id}`, error);
-          return null;
-        }
-      })
-      .filter((id): id is string => id !== null);
-  }
-
-  const selectedIds = new Set(
-    rule.excludedCollections.map(
-      (col: { collectionId: string }) => col.collectionId,
-    ),
-  );
-
-  if (rule.mode === "exclude") {
-    // EXCLUDE Mode: Mantieni le collezioni attuali del discount tranne quelle escluse
-    const entitledCollections = validCollections
-      .filter((col) => !selectedIds.has(col.id))
-      .map((col) => {
-        try {
-          return extractNumericId(col.id);
-        } catch (error) {
-          console.warn(
-            `⚠️ Invalid collection ID in exclude mode: ${col.id}`,
-            error,
-          );
-          return null;
-        }
-      })
-      .filter((id): id is string => id !== null);
-
-    console.log(
-      `✅ Exclude mode: Keeping ${entitledCollections.length} of ${validCollections.length} original discount collections`,
-    );
-    return entitledCollections;
-  } else {
-    // INCLUDE Mode: Solo le collezioni originali del discount che sono anche nelle regole di inclusione
-    const entitledCollections = validCollections
-      .filter((col) => selectedIds.has(col.id))
-      .map((col) => {
-        try {
-          return extractNumericId(col.id);
-        } catch (error) {
-          console.warn(
-            `⚠️ Invalid collection ID in include mode: ${col.id}`,
-            error,
-          );
-          return null;
-        }
-      })
-      .filter((id): id is string => id !== null);
-
-    console.log(
-      `✅ Include mode: Keeping ${entitledCollections.length} of ${validCollections.length} original discount collections`,
-    );
-    return entitledCollections;
-  }
-}
-
-/**
- * Calcola quali collections devono essere incluse nel discount
- * basandosi sulle regole di inclusione/esclusione
- */
-export async function getEntitledCollections(
-  shop: string,
-  allCollections: Array<{ id: string; title: string }>,
-): Promise<string[]> {
-  // Filter out invalid collections
-  const validCollections = allCollections.filter(
-    (col) => col.id && col.id.trim() !== "" && col.title !== undefined,
-  );
-
-  console.log(
-    `🔍 Processing ${validCollections.length}/${allCollections.length} valid collections`,
-  );
-
-  const rule = await discountRuleHelpers.getActiveRule(shop);
-
-  if (!rule || rule.excludedCollections.length === 0) {
-    // Nessuna regola = tutte le collections valide
-    return validCollections
-      .map((col) => {
-        try {
-          return extractNumericId(col.id);
-        } catch (error) {
-          console.warn(`⚠️ Invalid collection ID: ${col.id}`, error);
-          return null;
-        }
-      })
-      .filter((id): id is string => id !== null);
-  }
-
-  const selectedIds = new Set(
-    rule.excludedCollections.map(
-      (col: { collectionId: string }) => col.collectionId,
-    ),
-  );
-
-  if (rule.mode === "exclude") {
-    // EXCLUDE Mode: Tutte le collezioni valide tranne quelle selezionate
-    const entitledCollections = validCollections
-      .filter((col) => !selectedIds.has(col.id))
-      .map((col) => {
-        try {
-          return extractNumericId(col.id);
-        } catch (error) {
-          console.warn(
-            `⚠️ Invalid collection ID in exclude mode: ${col.id}`,
-            error,
-          );
-          return null;
-        }
-      })
-      .filter((id): id is string => id !== null);
-    return entitledCollections;
-  } else {
-    // INCLUDE Mode: Solo le collezioni valide selezionate
-    const entitledCollections = validCollections
-      .filter((col) => selectedIds.has(col.id))
-      .map((col) => {
-        try {
-          return extractNumericId(col.id);
-        } catch (error) {
-          console.warn(
-            `⚠️ Invalid collection ID in include mode: ${col.id}`,
-            error,
-          );
-          return null;
-        }
-      })
-      .filter((id): id is string => id !== null);
-    return entitledCollections;
-  }
-}
-
-/**
- * Applica le regole di esclusione a un price rule esistente
- */
-export async function applyRuleToPriceRule(
-  admin: AdminType,
-  shop: string,
-  priceRuleId: string,
-): Promise<{ success: boolean; message: string }> {
-  try {
-    // 1. Verifica se esistono regole attive
-    const activeRule = await discountRuleHelpers.getActiveRule(shop);
-
-    if (!activeRule) {
-      return {
-        success: false,
-        message: "No active discount rules found. Please create rules first.",
-      };
-    }
-
-    // 2. Trova il discount specifico per ottenere il tipo e le collezioni attuali
-    const discounts = await getDiscountCodes(admin);
-    const targetDiscount = discounts.find((d) => d.id === priceRuleId);
-
-    if (!targetDiscount) {
-      return {
-        success: false,
-        message: `Discount with ID ${priceRuleId} not found.`,
-      };
-    }
-
-    // 3. Ottieni le collezioni ATTUALMENTE associate al discount
-    const currentCollectionGids = await getCurrentDiscountCollections(
-      admin,
-      String(
-        targetDiscount.gid || `gid://shopify/DiscountNode/${targetDiscount.id}`,
-      ),
-    );
-
-    // 4. Recupera i dettagli delle collezioni attuali
-    const allCollections = await getAllCollections(admin);
-    const currentCollections = allCollections.filter((collection) =>
-      currentCollectionGids.includes(collection.id),
-    );
-
-    console.log(
-      `📊 Discount "${targetDiscount.title}" currently has ${currentCollections.length} collections`,
-    );
-    console.log(
-      "📋 Current collections:",
-      currentCollections.map((c) => c.title),
-    );
-
-    // 5. Applica le regole SOLO alle collezioni attuali del discount
-    const entitledCollectionIds = await applyRulesToCollections(
-      shop,
-      currentCollections,
-    );
-
-    // Note: entitledCollectionIds.length === 0 is valid!
-    // It means "exclude all original collections" which translates to items: { all: false }
-
-    const originalCount = currentCollections.length;
-    const finalCount = entitledCollectionIds.length;
-    const excludedCount = originalCount - finalCount;
-
-    console.log(
-      `📊 Original collections: ${originalCount}, Final collections: ${finalCount}, Excluded: ${excludedCount}`,
-    );
-
-    // 6. Applica le mutation GraphQL basate sul tipo di discount
-    const mutationResult = await applyDiscountMutation(
-      admin,
-      targetDiscount as {
-        id: string;
-        title: string;
-        type: string;
-        gid?: string;
-      },
-      entitledCollectionIds,
-      allCollections,
-    );
-
-    if (!mutationResult.success) {
-      return {
-        success: false,
-        message: `Failed to apply rules to discount: ${mutationResult.error}`,
-      };
-    }
-
-    // Return success message with detailed information
-    return {
-      success: true,
-      message: `Rules applied successfully! Discount now applies to ${finalCount} collections (was ${originalCount}). ${excludedCount} collections were excluded.`,
-    };
-  } catch (error) {
-    console.error("Error applying rule to price rule:", error);
-    return {
-      success: false,
-      message: error instanceof Error ? error.message : "Unknown error",
-    };
-  }
-}
-
-/**
- * Applica le regole di esclusione a TUTTI i price rules dello shop
- */
-export async function applyRuleToAllPriceRules(
-  admin: AdminType,
-  shop: string,
-): Promise<{
-  success: number;
-  failed: number;
-  total: number;
-  details: Array<{ id: string; title: string; status: string }>;
-}> {
-  try {
-    // 1. Recupera tutti i discount
-    const discounts = await getDiscountCodes(admin);
-
-    if (discounts.length === 0) {
-      return {
-        success: 0,
-        failed: 0,
-        total: 0,
-        details: [],
-      };
-    }
-
-    // 2. Per ogni discount, simula l'applicazione delle regole
-    const results = [];
-    let successCount = 0;
-
-    for (const discount of discounts) {
-      try {
-        // Simula l'applicazione della regola a questo discount specifico
-        const result = await applyRuleToPriceRule(
-          admin,
-          shop,
-          String(discount.id),
-        );
-
-        results.push({
-          id: String(discount.id),
-          title: String(discount.title),
-          status: result.success ? "processed" : "failed",
-        });
-
-        if (result.success) {
-          successCount++;
-        }
-      } catch (error) {
-        results.push({
-          id: String(discount.id),
-          title: String(discount.title),
-          status: "error",
-        });
-      }
-    }
-
-    return {
-      success: successCount,
-      failed: discounts.length - successCount,
-      total: discounts.length,
-      details: results,
-    };
-
-    /*
-    // Il codice originale qui sotto usava le REST API legacy
-    // che non sono più disponibili nelle moderne versioni di Shopify
-    */
-  } catch (error) {
-    console.error("Error applying rule to all price rules:", error);
-    return {
-      success: 0,
-      failed: 0,
-      total: 0,
-      details: [],
-    };
-  }
-}
-
-/**
  * Fetch tutti i discount codes e automatic discounts (GraphQL + REST)
  */
-export async function getDiscountCodes(admin: AdminType) {
+export async function getDiscountCodes(
+  admin: ShopifyAdmin,
+): Promise<DiscountData[]> {
   try {
     console.log("🔍 Fetching discounts...");
 
-    // 1. Fetch discount nodes via GraphQL (nuova API)
     const graphqlResponse = await admin.graphql(
       `#graphql
         query {
-          discountNodes(first: 50) {
+          discountNodes(first: 250) {
             edges {
               node {
                 id
@@ -1406,96 +905,89 @@ export async function getDiscountCodes(admin: AdminType) {
         }`,
     );
 
-    const graphqlData = (await graphqlResponse.json()) as unknown as {
-      data: {
-        discountNodes: {
-          edges: Array<{
-            node: {
-              id: string;
-              discount: {
-                __typename: string;
-                title: string;
-                status: string;
-                codes?: {
-                  nodes: Array<{
-                    code: string;
-                  }>;
-                };
-                customerGets?: {
-                  value: {
-                    percentage?: number;
-                    amount?: {
-                      amount: string;
-                    };
-                  };
-                  items?: {
-                    collections?: {
-                      nodes: Array<{
-                        id: string;
-                        title: string;
-                      }>;
-                    };
-                  };
-                };
-              };
-            };
-          }>;
-        };
-      };
-    };
+    const graphqlData =
+      (await graphqlResponse.json()) as unknown as GraphQLDiscountResponse;
 
-    console.log("📊 GraphQL Response:", JSON.stringify(graphqlData, null, 2));
+    if (graphqlData.errors) {
+      console.error("❌ GraphQL Errors:", graphqlData.errors);
+      throw new Error(`GraphQL errors: ${JSON.stringify(graphqlData.errors)}`);
+    }
 
-    // Trasforma i dati GraphQL nel formato atteso
-    const modernDiscounts =
-      graphqlData.data?.discountNodes?.edges?.map((edge) => {
-        const { node } = edge;
-        const { discount } = node;
+    if (!graphqlData?.data?.discountNodes) {
+      console.error("❌ No discount nodes in response");
+      return [];
+    }
 
-        // Determina il tipo di valore
-        let valueType = "fixed";
-        let value = "0";
+    const edges = graphqlData.data.discountNodes.edges || [];
+    console.log(`📊 Found ${edges.length} discount edges`);
 
-        if (discount.customerGets?.value?.percentage) {
-          valueType = "percentage";
-          value = discount.customerGets.value.percentage.toString();
-        } else if (discount.customerGets?.value?.amount) {
-          valueType = "fixed_amount";
-          value = discount.customerGets.value.amount.amount;
+    const modernDiscounts = edges
+      .map((edge, index) => {
+        try {
+          const { node } = edge;
+          const { discount } = node;
+
+          if (!node?.id || !discount?.title || !discount?.__typename) {
+            console.warn(`⚠️ Invalid discount node at index ${index}:`, edge);
+            return null;
+          }
+
+          let valueType = "fixed";
+          let value = "0";
+
+          if (discount.customerGets?.value?.percentage) {
+            valueType = "percentage";
+            value = discount.customerGets.value.percentage.toString();
+          } else if (discount.customerGets?.value?.amount) {
+            valueType = "fixed_amount";
+            value = discount.customerGets.value.amount.amount;
+          }
+
+          const collectionsCount =
+            discount.customerGets?.items?.collections?.nodes?.length || 0;
+
+          const discountData: DiscountData = {
+            id: extractNumericId(node.id),
+            gid: node.id,
+            title: discount.title,
+            value_type: valueType,
+            value: value,
+            discount_codes: discount.codes?.nodes || [],
+            collections_count: collectionsCount,
+            target_selection: "entitled",
+            type: discount.__typename,
+            status: discount.status,
+          };
+
+          console.log(`✅ Processed discount ${index + 1}:`, discountData);
+          return discountData;
+        } catch (error) {
+          console.error(
+            `❌ Error processing discount at index ${index}:`,
+            error,
+            edge,
+          );
+          return null;
         }
+      })
+      .filter((discount): discount is DiscountData => discount !== null);
 
-        // Calcola il numero di collezioni
-        const collectionsCount =
-          discount.customerGets?.items?.collections?.nodes?.length || 0;
+    console.log("📊 Processing complete:");
+    console.log(`✅ Modern discounts found: ${modernDiscounts.length}`);
 
-        return {
-          id: extractNumericId(node.id),
-          gid: node.id, // Store the full GID for mutations
-          title: discount.title,
-          value_type: valueType,
-          value: value,
-          discount_codes: discount.codes?.nodes || [],
-          collections_count: collectionsCount,
-          target_selection: "entitled",
-          type: discount.__typename,
-          status: discount.status,
-        };
-      }) || [];
+    if (modernDiscounts.length === 0) {
+      console.warn("⚠️ WARNING: No discounts found. This might indicate:");
+      console.warn("  - No discounts exist in the shop");
+      console.warn("  - GraphQL query issues");
+      console.warn("  - Authentication/permission issues");
+    } else {
+      console.log("🎯 Sample discount data:");
+      console.log(JSON.stringify(modernDiscounts[0], null, 2));
+    }
 
-    // 2. Legacy price rules non sono più supportati nelle moderne API Shopify
-    const legacyDiscounts: Array<Record<string, unknown>> = [];
-    console.log("💰 Legacy Price Rules: Not supported in modern Shopify API");
-
-    // Combina i risultati
-    const allDiscounts = [...modernDiscounts, ...legacyDiscounts];
-    console.log(
-      "🎯 Total discounts found:",
-      allDiscounts.length,
-      JSON.stringify(allDiscounts, null, 2),
-    );
-    return allDiscounts;
+    return modernDiscounts;
   } catch (error) {
-    console.error("Error fetching discount codes:", error);
+    console.error("❌ Error fetching discount codes via GraphQL:", error);
     return [];
   }
 }

@@ -28,36 +28,55 @@ model Session {
   emailVerified Boolean?  @default(false)
 }
 
-// Discount Rules - La tua feature principale
-model DiscountRule {
-  id        String   @id @default(cuid())
-  shop      String
-  mode      String   @default("exclude") // "exclude" o "include"
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+// Multiple Discount Rules - Regole specifiche per discount
+model DiscountSpecificRule {
+  id            String   @id @default(cuid())
+  shop          String
+  discountId    String // Shopify discount ID/GID
+  discountTitle String // Cache del titolo per UI
+  discountType  String // "DiscountCodeBasic", "DiscountAutomaticBasic", etc.
+  mode          String   @default("exclude") // "exclude" o "include"
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   // Relations
-  excludedCollections ExcludedCollection[]
+  excludedCollections SpecificExcludedCollection[]
+  excludedProducts    SpecificExcludedProduct[]
 
-  @@unique([shop])
+  @@unique([shop, discountId])
   @@index([shop, active])
+  @@index([discountId])
 }
 
-// Collections escluse dalle regole
-model ExcludedCollection {
+// Collections escluse per regole specifiche
+model SpecificExcludedCollection {
   id            String @id @default(cuid())
   collectionId  String // Shopify collection GID
   title         String
   productsCount Int    @default(0)
 
-  // Relation to rule
   ruleId String
-  rule   DiscountRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  rule   DiscountSpecificRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 
   @@unique([ruleId, collectionId])
+  @@index([ruleId])
+}
+
+// Prodotti esclusi per regole specifiche
+model SpecificExcludedProduct {
+  id        String @id @default(cuid())
+  productId String // Shopify product GID
+  title     String
+
+  ruleId String
+  rule   DiscountSpecificRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([ruleId, productId])
   @@index([ruleId])
 }
 

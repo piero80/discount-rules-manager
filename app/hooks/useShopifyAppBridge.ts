@@ -5,7 +5,17 @@ export function useShopifyAppBridge() {
   const app = useAppBridge();
 
   const showResourcePicker = useCallback(
-    async (resourceType: "Product" | "Collection", options = {}) => {
+    async (
+      resourceType: "Product" | "Collection",
+      options: {
+        selectionIds?: Array<{
+          id: string;
+          variants?: Array<{ id: string }>;
+        }>;
+        multiple?: boolean;
+        action?: "select" | "add";
+      } = {},
+    ) => {
       if (!app) return null;
 
       try {
@@ -15,8 +25,12 @@ export function useShopifyAppBridge() {
           Collection: "collection",
         } as const;
         const type = typeMap[resourceType];
+
         return await app.resourcePicker({
           type,
+          multiple: options.multiple ?? true,
+          action: options.action ?? "select",
+          ...(options.selectionIds && { selectionIds: options.selectionIds }),
           ...options,
         });
       } catch (error) {

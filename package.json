@@ -24,6 +24,7 @@
     "vite": "vite",
     "typecheck": "react-router typegen && tsc --noEmit",
     "test:build": "npm run build && echo 'Build test successful'",
+    "test:migration": "tsx scripts/run-migration-test.ts",
     "health-check": "curl -f http://localhost:3000/health || exit 1"
   },
   "type": "module",

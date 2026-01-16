@@ -20,19 +20,29 @@ if (process.env.NODE_ENV === "production") {
 }
 
 export default prisma;
+export { prisma };
 
-// Types per le discount rules
+// Types for Multiple Discount Rules System
 export interface CreateDiscountRuleData {
   shop: string;
+  discountId: string;
+  discountTitle?: string;
+  discountType?: string;
   mode: "exclude" | "include";
   excludedCollections: Array<{
     collectionId: string;
     title: string;
     productsCount: number;
   }>;
+  excludedProducts?: Array<{
+    productId: string;
+    title: string;
+  }>;
 }
 
 export interface UpdateDiscountRuleData {
+  discountTitle?: string;
+  discountType?: string;
   mode?: "exclude" | "include";
   active?: boolean;
   excludedCollections?: Array<{
@@ -40,27 +50,24 @@ export interface UpdateDiscountRuleData {
     title: string;
     productsCount: number;
   }>;
+  excludedProducts?: Array<{
+    productId: string;
+    title: string;
+  }>;
 }
 
-// Helper functions per le discount rules
+// Helper functions for multiple discount rules
 export const discountRuleHelpers = {
-  // Ottieni la regola per uno shop (cached per performance)
-  async getActiveRule(shop: string) {
-    return prisma.discountRule.findFirst({
+  // Get all rules for a shop
+  async getRulesForShop(shop: string) {
+    return prisma.discountSpecificRule.findMany({
       where: {
         shop,
         active: true,
       },
       include: {
-        excludedCollections: {
-          select: {
-            id: true,
-            collectionId: true,
-            title: true,
-            productsCount: true,
-            createdAt: true,
-          },
-        },
+        excludedCollections: true,
+        excludedProducts: true,
       },
       orderBy: {
         updatedAt: "desc",
@@ -68,143 +75,170 @@ export const discountRuleHelpers = {
     });
   },
 
-  // Versione ottimizzata per dashboard (meno dati)
+  // Get rule for specific discount
+  async getRuleForDiscount(shop: string, discountId: string) {
+    return prisma.discountSpecificRule.findUnique({
+      where: {
+        shop_discountId: { shop, discountId },
+      },
+      include: {
+        excludedCollections: true,
+        excludedProducts: true,
+      },
+    });
+  },
+
+  // Create or update a rule for a specific discount
+  async upsertDiscountRule(shop: string, data: CreateDiscountRuleData) {
+    return prisma.discountSpecificRule.upsert({
+      where: {
+        shop_discountId: { shop, discountId: data.discountId },
+      },
+      create: {
+        shop,
+        discountId: data.discountId,
+        discountTitle: data.discountTitle || "",
+        discountType: data.discountType || "",
+        mode: data.mode,
+        excludedCollections: {
+          create: data.excludedCollections,
+        },
+        excludedProducts: {
+          create: data.excludedProducts || [],
+        },
+      },
+      update: {
+        discountTitle: data.discountTitle,
+        discountType: data.discountType,
+        mode: data.mode,
+        updatedAt: new Date(),
+        excludedCollections: {
+          deleteMany: {},
+          create: data.excludedCollections,
+        },
+        excludedProducts: {
+          deleteMany: {},
+          create: data.excludedProducts || [],
+        },
+      },
+      include: {
+        excludedCollections: true,
+        excludedProducts: true,
+      },
+    });
+  },
+
+  // Update existing rule
+  async updateDiscountRule(
+    shop: string,
+    discountId: string,
+    data: UpdateDiscountRuleData,
+  ) {
+    const updateData: Record<string, unknown> = {
+      updatedAt: new Date(),
+    };
+
+    if (data.discountTitle !== undefined)
+      updateData.discountTitle = data.discountTitle;
+    if (data.discountType !== undefined)
+      updateData.discountType = data.discountType;
+    if (data.mode !== undefined) updateData.mode = data.mode;
+    if (data.active !== undefined) updateData.active = data.active;
+
+    if (data.excludedCollections) {
+      updateData.excludedCollections = {
+        deleteMany: {},
+        create: data.excludedCollections,
+      };
+    }
+
+    if (data.excludedProducts) {
+      updateData.excludedProducts = {
+        deleteMany: {},
+        create: data.excludedProducts,
+      };
+    }
+
+    return prisma.discountSpecificRule.update({
+      where: {
+        shop_discountId: { shop, discountId },
+      },
+      data: updateData,
+      include: {
+        excludedCollections: true,
+        excludedProducts: true,
+      },
+    });
+  },
+
+  // Delete a rule
+  async deleteDiscountRule(shop: string, discountId: string) {
+    return prisma.discountSpecificRule.delete({
+      where: {
+        shop_discountId: { shop, discountId },
+      },
+    });
+  },
+
+  // Get rule stats for dashboard
   async getRuleStats(shop: string) {
-    const rule = await prisma.discountRule.findFirst({
+    const rules = await prisma.discountSpecificRule.findMany({
       where: { shop, active: true },
       select: {
         id: true,
+        discountId: true,
+        discountTitle: true,
         mode: true,
         updatedAt: true,
         _count: {
           select: {
             excludedCollections: true,
+            excludedProducts: true,
           },
         },
       },
     });
 
     return {
-      hasRule: !!rule,
-      mode: rule?.mode || null,
-      excludedCount: rule?._count.excludedCollections || 0,
-      lastActivity: rule?.updatedAt?.toISOString() || null,
+      totalRules: rules.length,
+      rules: rules.map((rule) => ({
+        discountId: rule.discountId,
+        discountTitle: rule.discountTitle,
+        mode: rule.mode,
+        excludedCollections: rule._count.excludedCollections,
+        excludedProducts: rule._count.excludedProducts,
+        lastUpdated: rule.updatedAt.toISOString(),
+      })),
     };
   },
 
-  // Crea o aggiorna una regola (una sola regola per shop)
-  async createOrUpdateRule(shop: string, data: CreateDiscountRuleData) {
-    // Cerca la regola esistente per questo shop
-    const existingRule = await prisma.discountRule.findFirst({
-      where: { shop },
-      include: { excludedCollections: true },
-    });
-
-    if (existingRule) {
-      // Aggiorna la regola esistente
-      // Prima elimina tutte le collezioni escluse esistenti
-      await prisma.excludedCollection.deleteMany({
-        where: { ruleId: existingRule.id },
-      });
-
-      // Poi aggiorna la regola con i nuovi dati
-      return prisma.discountRule.update({
-        where: { id: existingRule.id },
-        data: {
-          mode: data.mode,
-          active: true,
-          updatedAt: new Date(),
-          excludedCollections: {
-            create: data.excludedCollections,
-          },
-        },
-        include: {
-          excludedCollections: true,
-        },
-      });
-    } else {
-      // Crea una nuova regola se non esiste
-      return prisma.discountRule.create({
-        data: {
-          shop: data.shop,
-          mode: data.mode,
-          active: true,
-          excludedCollections: {
-            create: data.excludedCollections,
-          },
-        },
-        include: {
-          excludedCollections: true,
-        },
-      });
-    }
-  },
-
-  // Aggiorna una regola esistente
-  async updateRule(ruleId: string, data: UpdateDiscountRuleData) {
-    const updateData: {
-      mode?: "exclude" | "include";
-      active?: boolean;
-      updatedAt: Date;
-      excludedCollections?: {
-        create: Array<{
-          collectionId: string;
-          title: string;
-          productsCount: number;
-        }>;
-      };
-    } = {
-      mode: data.mode,
-      active: data.active,
-      updatedAt: new Date(),
-    };
-
-    // Se ci sono collezioni escluse da aggiornare
-    if (data.excludedCollections) {
-      // Prima elimina tutte le collezioni esistenti
-      await prisma.excludedCollection.deleteMany({
-        where: { ruleId },
-      });
-
-      // Poi crea le nuove
-      updateData.excludedCollections = {
-        create: data.excludedCollections,
-      };
-    }
-
-    return prisma.discountRule.update({
-      where: { id: ruleId },
-      data: updateData,
-      include: {
-        excludedCollections: true,
+  // Disable a rule (soft delete)
+  async disableDiscountRule(shop: string, discountId: string) {
+    return prisma.discountSpecificRule.update({
+      where: {
+        shop_discountId: { shop, discountId },
+      },
+      data: {
+        active: false,
+        updatedAt: new Date(),
       },
     });
   },
 
-  // Elimina una regola
-  async deleteRule(ruleId: string) {
-    return prisma.discountRule.delete({
-      where: { id: ruleId },
-      include: {
-        excludedCollections: true,
+  // Enable a rule
+  async enableDiscountRule(shop: string, discountId: string) {
+    return prisma.discountSpecificRule.update({
+      where: {
+        shop_discountId: { shop, discountId },
+      },
+      data: {
+        active: true,
+        updatedAt: new Date(),
       },
     });
   },
 
-  // Ottieni tutte le regole per uno shop
-  async getAllRules(shop: string) {
-    return prisma.discountRule.findMany({
-      where: { shop },
-      include: {
-        excludedCollections: true,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
-  },
-
-  // Log un'azione
+  // Log an action (optional logging system)
   async logAction(
     shop: string,
     action: string,
@@ -221,7 +255,7 @@ export const discountRuleHelpers = {
     });
   },
 
-  // Ottieni i log per uno shop
+  // Get logs for a shop (optional logging system)
   async getLogs(shop: string, limit = 50) {
     return prisma.ruleLog.findMany({
       where: { shop },
