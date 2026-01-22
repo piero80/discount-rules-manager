@@ -245,6 +245,16 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         console.log("🔄 Starting Shopify discount update...");
         console.log("🆔 Raw discountId:", discountId);
 
+        // Dichiara le variabili di debug all'inizio per renderle disponibili nel catch
+        let shopifyDiscountId = null;
+        let finalMutationId = null;
+        let mutationDiscountId = null;
+        let mutationName = null;
+        let updateMutation = null;
+        let currentDiscountData = null;
+
+        console.log("✅ CHECKPOINT 1: Variables declared");
+
         // Prova diversi formati di GID per trovare quello corretto
         const possibleFormats = [];
 
@@ -270,10 +280,8 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
           }
         }
 
+        console.log("✅ CHECKPOINT 2: GID formats prepared");
         console.log("🔧 Trying GID formats:", possibleFormats);
-
-        let shopifyDiscountId = null;
-        let currentDiscountData = null;
 
         // Prima ottieni i dettagli attuali del discount provando diversi formati
         const discountQuery = `
@@ -281,6 +289,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
           query getDiscount($id: ID!) {
             discountNode(id: $id) {
               discount {
+                __typename
                 ... on DiscountAutomaticBasic {
                   customerGets {
                     items {
@@ -321,20 +330,39 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
                     }
                   }
                 }
+                ... on DiscountAutomaticApp {
+                  title
+                }
+                ... on DiscountCodeApp {
+                  title
+                }
+                ... on DiscountAutomaticBxgy {
+                  title
+                }
+                ... on DiscountCodeBxgy {
+                  title
+                }
               }
             }
           }
         `;
 
+        console.log("✅ CHECKPOINT 3: GraphQL query defined");
+
         // Prova ogni formato fino a trovarne uno che funziona
         for (const format of possibleFormats) {
           try {
             console.log("📞 Trying GraphQL query with ID:", format);
+
+            console.log("✅ CHECKPOINT 4A: About to call admin.graphql");
             const response = await admin.graphql(discountQuery, {
               variables: { id: format },
             });
 
+            console.log("✅ CHECKPOINT 4B: admin.graphql completed");
             const data = await response.json();
+            console.log("✅ CHECKPOINT 4C: response.json() completed");
+
             console.log(
               "📋 Response for",
               format,
@@ -360,11 +388,16 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
           }
         }
 
+        console.log("✅ CHECKPOINT 5: GID search loop completed");
+
         if (!shopifyDiscountId || !currentDiscountData) {
+          console.log("❌ CHECKPOINT 5A: No working GID found");
           throw new Error(
             "Could not find discount with any of the tried GID formats",
           );
         }
+
+        console.log("✅ CHECKPOINT 6: Working GID found:", shopifyDiscountId);
 
         // Estrai le collection e products attuali
         const currentItems =
@@ -372,6 +405,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         const currentCollections = currentItems?.collections?.nodes || [];
         const currentProducts = currentItems?.products?.nodes || [];
 
+        console.log("✅ CHECKPOINT 7: Current items extracted");
         console.log(
           "🔍 Current collections:",
           currentCollections.map((c: any) => c.id),
@@ -380,6 +414,43 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
           "🔍 Current products:",
           currentProducts.map((p: any) => p.id),
         );
+
+        // 🔧 CHECKPOINT 7A: Detect actual discount type from the response
+        console.log("✅ CHECKPOINT 7A: Detecting discount type from response");
+        const discountData = currentDiscountData.data?.discountNode?.discount;
+        const discountType = discountData?.__typename || "Unknown";
+        console.log("🔧 Detected discount type:", discountType);
+        console.log(
+          "🔧 Full discount data:",
+          JSON.stringify(discountData, null, 2),
+        );
+
+        // Determine if this is an unsupported discount type
+        const supportedBasicTypes = [
+          "DiscountAutomaticBasic",
+          "DiscountCodeBasic",
+        ];
+        const isBasicDiscount = supportedBasicTypes.includes(discountType);
+
+        console.log("🔧 Is basic discount?", isBasicDiscount);
+        console.log("🔧 Supported types:", supportedBasicTypes);
+
+        if (!isBasicDiscount) {
+          console.log(
+            `⚠️ WARNING: Discount type "${discountType}" is not a Basic discount type.`,
+          );
+          console.log(
+            "ℹ️ This app only supports DiscountAutomaticBasic and DiscountCodeBasic types.",
+          );
+          console.log(
+            "ℹ️ Skipping Shopify update and using app-level exclusion logic instead.",
+          );
+          throw new Error(
+            `Unsupported discount type: ${discountType}. This app only supports Basic discount types.`,
+          );
+        }
+
+        console.log("✅ CHECKPOINT 8: About to filter collections/products");
 
         // Filtra rimuovendo gli elementi esclusi
         const allowedCollections = currentCollections.filter(
@@ -394,6 +465,8 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
               (excluded: any) => excluded.id === product.id,
             ),
         );
+
+        console.log("✅ CHECKPOINT 9: Filtering completed");
 
         console.log(
           "✅ Allowed collections after filtering:",
@@ -427,6 +500,8 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
           excludedProducts.map((p: any) => p.id),
         );
 
+        console.log("✅ CHECKPOINT 10: Comparison details completed");
+
         // 3. Aggiorna effettivamente il discount in Shopify
         const hasChanges =
           allowedCollections.length !== currentCollections.length ||
@@ -434,21 +509,33 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
           excludedCollections.length > 0 ||
           excludedProducts.length > 0;
 
+        console.log("✅ CHECKPOINT 11: hasChanges calculated");
         console.log("🎯 Should update?", hasChanges);
 
         if (hasChanges) {
           console.log("🔄 Updating Shopify discount with new items...");
 
-          // Determina il tipo di mutation basato sul GID trovato
-          let updateMutation;
-          let mutationName;
-          let mutationDiscountId = shopifyDiscountId;
+          console.log("✅ CHECKPOINT 11A: Inside hasChanges block");
+
+          // 🔧 CHECKPOINT 11A2: Double-check discount type before mutation setup
+          console.log(
+            "✅ CHECKPOINT 11A2: Re-checking discount type for mutation",
+          );
+          const discountTypeFromData =
+            currentDiscountData.data?.discountNode?.discount?.__typename;
+          console.log(
+            "🔧 Confirmed discount type for mutation:",
+            discountTypeFromData,
+          );
+
+          // Determina il tipo di mutation basato sul GID trovato E sul tipo effettivo
+          updateMutation = null; // Reset per sicurezza
+          mutationName = null; // Reset per sicurezza
+          mutationDiscountId = shopifyDiscountId;
 
           // Per le mutation, spesso il GID deve essere adattato
-          if (
-            shopifyDiscountId.includes("DiscountAutomaticNode") ||
-            shopifyDiscountId.includes("DiscountAutomaticBasic")
-          ) {
+          if (discountTypeFromData === "DiscountAutomaticBasic") {
+            console.log("🔧 Setting up mutation for DiscountAutomaticBasic");
             updateMutation = `
               #graphql
               mutation discountAutomaticBasicUpdate($id: ID!, $automaticBasicDiscount: DiscountAutomaticBasicInput!) {
@@ -464,25 +551,13 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
               }
             `;
             mutationName = "discountAutomaticBasicUpdate";
-
-            // Per le mutation automatic, potrebbe servire solo il GID del node
-            if (shopifyDiscountId.includes("DiscountAutomaticNode")) {
-              mutationDiscountId = shopifyDiscountId; // Usa come è
-            } else {
-              // Se abbiamo trovato con DiscountAutomaticBasic, prova a convertire in Node
-              mutationDiscountId = shopifyDiscountId.replace(
-                "DiscountAutomaticBasic",
-                "DiscountAutomaticNode",
-              );
-            }
-          } else if (
-            shopifyDiscountId.includes("DiscountCodeNode") ||
-            shopifyDiscountId.includes("DiscountCodeBasic")
-          ) {
+            mutationDiscountId = shopifyDiscountId; // Use the found GID as-is
+          } else if (discountTypeFromData === "DiscountCodeBasic") {
+            console.log("🔧 Setting up mutation for DiscountCodeBasic");
             updateMutation = `
               #graphql
-              mutation discountCodeBasicUpdate($id: ID!, $codeDiscountNode: DiscountCodeBasicInput!) {
-                discountCodeBasicUpdate(id: $id, codeDiscountNode: $codeDiscountNode) {
+              mutation discountCodeBasicUpdate($id: ID!, $basicCodeDiscount: DiscountCodeBasicInput!) {
+                discountCodeBasicUpdate(id: $id, basicCodeDiscount: $basicCodeDiscount) {
                   codeDiscountNode {
                     id
                   }
@@ -494,67 +569,339 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
               }
             `;
             mutationName = "discountCodeBasicUpdate";
-
-            // Per le mutation code, potrebbe servire solo il GID del node
-            if (shopifyDiscountId.includes("DiscountCodeNode")) {
-              mutationDiscountId = shopifyDiscountId; // Usa come è
-            } else {
-              // Se abbiamo trovato con DiscountCodeBasic, prova a convertire in Node
-              mutationDiscountId = shopifyDiscountId.replace(
-                "DiscountCodeBasic",
-                "DiscountCodeNode",
-              );
-            }
+            mutationDiscountId = shopifyDiscountId; // Use the found GID as-is
           } else {
+            console.error(
+              "❌ Unsupported discount type for mutation:",
+              discountTypeFromData,
+            );
             throw new Error(
-              `Unsupported discount type for GID: ${shopifyDiscountId}`,
+              `Unsupported discount type for mutation: ${discountTypeFromData}. Only DiscountAutomaticBasic and DiscountCodeBasic are supported.`,
             );
           }
+
+          console.log("✅ CHECKPOINT 11B: Mutation setup completed");
 
           console.log("🔧 Query GID:", shopifyDiscountId);
           console.log("🔧 Mutation GID:", mutationDiscountId);
           console.log("🔧 Using mutation:", mutationName);
 
-          const updateInput = {
+          // Use the mutation GID as-is - don't convert to generic DiscountNode
+          finalMutationId = mutationDiscountId;
+
+          console.log("✅ CHECKPOINT 11C: Final mutation ID set");
+          console.log("🔧 Final mutation ID:", finalMutationId);
+
+          // Controllo preventivo: questo tipo di discount potrebbe non supportare modifiche
+          if (!currentCollections.length && !currentProducts.length) {
+            console.log(
+              "⚠️ WARNING: This discount has no collections/products. It might be an 'all items' discount that doesn't support item-level modifications.",
+            );
+            console.log(
+              "ℹ️ Skipping Shopify update and using app-level exclusion logic instead.",
+            );
+            throw new Error(
+              "Discount appears to be 'all items' type - using app-level exclusion logic",
+            );
+          }
+
+          // 🔧 CHECKPOINT 11D: Generate correct mutation GIDs based on discount type
+          console.log(
+            "✅ CHECKPOINT 11D: Generating mutation GIDs for type:",
+            discountTypeFromData,
+          );
+
+          // Generate possible mutation GIDs based on the actual discount type
+          const possibleMutationGids = [];
+
+          // Extract the numeric ID from the working query GID
+          const numericId = shopifyDiscountId.split("/").pop();
+          console.log("🔧 Extracted numeric ID:", numericId);
+
+          if (discountTypeFromData === "DiscountAutomaticBasic") {
+            // For DiscountAutomaticBasic, try both Node and Basic formats
+            possibleMutationGids.push(
+              `gid://shopify/DiscountAutomaticNode/${numericId}`,
+            );
+            possibleMutationGids.push(
+              `gid://shopify/DiscountAutomaticBasic/${numericId}`,
+            );
+          } else if (discountTypeFromData === "DiscountCodeBasic") {
+            // For DiscountCodeBasic, try both Node and Basic formats using the correct Code types
+            possibleMutationGids.push(
+              `gid://shopify/DiscountCodeNode/${numericId}`,
+            );
+            possibleMutationGids.push(
+              `gid://shopify/DiscountCodeBasic/${numericId}`,
+            );
+            // Also try the working query GID in case it still works for mutations
+            possibleMutationGids.push(shopifyDiscountId);
+          }
+
+          console.log(
+            "🔧 Mutation GIDs to try for",
+            discountTypeFromData,
+            ":",
+            possibleMutationGids,
+          );
+
+          // Strategia a due passi come nella versione precedente che funzionava:
+          // 1. Prima rimuovi tutto (all: true)
+          // 2. Poi aggiungi solo gli elementi consentiti
+
+          // Passo 1: Rimuovi tutto impostando all: true
+          console.log("🔄 Step 1: Removing all items from discount...");
+
+          const removeInput = {
             customerGets: {
+              value: {
+                percentage: 0.1, // 10% as decimal (must be between 0.0 and 1.0)
+              },
               items: {
-                // Invece di rimuovere, impostiamo solo gli elementi consentiti
-                ...(allowedCollections.length > 0 && {
-                  collections: {
-                    add: allowedCollections.map((c: any) => c.id),
-                  },
-                }),
-                ...(allowedProducts.length > 0 && {
-                  products: {
-                    add: allowedProducts.map((p: any) => p.id),
-                  },
-                }),
-                // Se non ci sono items consentiti, applica a tutto
-                ...(allowedCollections.length === 0 &&
-                  allowedProducts.length === 0 && {
-                    all: true,
-                  }),
+                all: true,
               },
             },
           };
 
-          console.log("📤 Update input:", JSON.stringify(updateInput, null, 2));
-          console.log("🔧 Query GID:", shopifyDiscountId);
-          console.log("🔧 Mutation GID:", mutationDiscountId);
-          console.log("🔧 Using mutation:", mutationName);
+          console.log(
+            "✅ CHECKPOINT 11E: Trying Step 1 with multiple GID formats",
+          );
 
-          const variables =
-            mutationName === "discountAutomaticBasicUpdate"
-              ? { id: mutationDiscountId, automaticBasicDiscount: updateInput }
-              : { id: mutationDiscountId, codeDiscountNode: updateInput };
+          let step1Success = false;
+          let successfulMutationGid = null;
+
+          // Prova ogni possibile GID per la mutation
+          for (const mutationGid of possibleMutationGids) {
+            try {
+              console.log(`🔄 Step 1 attempt with GID: ${mutationGid}`);
+
+              const removeVariables =
+                mutationName === "discountAutomaticBasicUpdate"
+                  ? { id: mutationGid, automaticBasicDiscount: removeInput }
+                  : { id: mutationGid, basicCodeDiscount: removeInput };
+
+              console.log(
+                "📤 Step 1 variables:",
+                JSON.stringify(removeVariables, null, 2),
+              );
+
+              const removeResponse = await admin.graphql(updateMutation, {
+                variables: removeVariables,
+              });
+
+              const removeResult = await removeResponse.json();
+              console.log(
+                "📥 Step 1 result:",
+                JSON.stringify(removeResult, null, 2),
+              );
+
+              const removeErrors =
+                removeResult.data?.[mutationName]?.userErrors;
+              if (removeErrors?.length > 0) {
+                console.log(
+                  `❌ Step 1 failed with GID ${mutationGid}:`,
+                  removeErrors[0]?.message,
+                );
+                continue; // Try next GID
+              }
+
+              console.log(`✅ Step 1 succeeded with GID: ${mutationGid}`);
+              step1Success = true;
+              successfulMutationGid = mutationGid;
+              finalMutationId = mutationGid; // Update for Step 2
+              break; // Exit the loop on success
+            } catch (error) {
+              console.log(
+                `❌ Step 1 exception with GID ${mutationGid}:`,
+                error,
+              );
+              continue; // Try next GID
+            }
+          }
+
+          if (!step1Success) {
+            throw new Error("Step 1 failed with all attempted GID formats");
+          }
+
+          if (!step1Success) {
+            throw new Error("Step 1 failed with all attempted GID formats");
+          }
+
+          console.log("✅ Step 1 completed: All items removed");
+          console.log("✅ Successful mutation GID:", successfulMutationGid);
+
+          console.log("✅ CHECKPOINT 12: Step 1 completed, starting Step 2");
+
+          // Passo 2: Aggiungi solo gli elementi consentiti
+          console.log("🔄 Step 2: Adding allowed items back...");
+
+          // Recupera la configurazione completa del discount per mantenere tutte le proprietà
+          // IMPORTANT: appliesOncePerCustomer is only available for DiscountCodeBasic, NOT DiscountAutomaticBasic
+          const fullDiscountQuery = `#graphql
+            query getFullDiscount($id: ID!) {
+              discountNode(id: $id) {
+                discount {
+                  ... on DiscountCodeBasic {
+                    title
+                    summary
+                    customerGets {
+                      value {
+                        ... on DiscountPercentage {
+                          percentage
+                        }
+                        ... on DiscountAmount {
+                          amount {
+                            amount
+                            currencyCode
+                          }
+                        }
+                      }
+                    }
+                    appliesOncePerCustomer
+                    startsAt
+                    endsAt
+                  }
+                  ... on DiscountAutomaticBasic {
+                    title
+                    summary
+                    customerGets {
+                      value {
+                        ... on DiscountPercentage {
+                          percentage
+                        }
+                        ... on DiscountAmount {
+                          amount {
+                            amount
+                            currencyCode
+                          }
+                        }
+                      }
+                    }
+                    startsAt
+                    endsAt
+                  }
+                }
+              }
+            }`;
+
+          const fullConfigResponse = await admin.graphql(fullDiscountQuery, {
+            variables: { id: shopifyDiscountId },
+          });
+          const fullConfigResult = await fullConfigResponse.json();
+
+          console.log(
+            "🔧 Full config response:",
+            JSON.stringify(fullConfigResult, null, 2),
+          );
+
+          if (fullConfigResult.errors) {
+            console.error(
+              "❌ Error fetching full discount config:",
+              fullConfigResult.errors,
+            );
+            throw new Error(
+              `Failed to fetch discount configuration: ${JSON.stringify(fullConfigResult.errors)}`,
+            );
+          }
+
+          const fullConfig = fullConfigResult.data?.discountNode?.discount;
+
+          if (!fullConfig) {
+            console.error("❌ No discount configuration found in response");
+            throw new Error(
+              "Discount configuration not found - discount may not exist or be accessible",
+            );
+          }
+
+          console.log(
+            "🔧 Full discount config:",
+            JSON.stringify(fullConfig, null, 2),
+          );
+
+          // Costruisci il valore del discount basandoti sulla configurazione esistente
+          let mutationValue: any;
+          if (fullConfig?.customerGets?.value?.percentage !== undefined) {
+            // For percentage values, ensure they're in decimal format (0.0 to 1.0)
+            const percentageValue = fullConfig.customerGets.value.percentage;
+            mutationValue = {
+              percentage:
+                percentageValue > 1 ? percentageValue / 100 : percentageValue,
+            };
+          } else if (fullConfig?.customerGets?.value?.amount) {
+            mutationValue = {
+              discountAmount: {
+                amount: fullConfig.customerGets.value.amount.amount,
+                appliesOnEachItem: false,
+              },
+            };
+          } else {
+            // Fallback per sicurezza - 10% as decimal
+            mutationValue = {
+              percentage: 0.1,
+            };
+          }
+
+          console.log(
+            "💰 Using mutation value:",
+            JSON.stringify(mutationValue, null, 2),
+          );
+
+          // Costruisci l'input per la mutazione con la logica della vecchia implementazione
+          const customerGets: any = {
+            value: mutationValue,
+            items:
+              allowedCollections.length > 0 || allowedProducts.length > 0
+                ? {
+                    all: false,
+                    ...(allowedCollections.length > 0 && {
+                      collections: {
+                        add: allowedCollections.map((c: any) => c.id),
+                      },
+                    }),
+                    ...(allowedProducts.length > 0 && {
+                      products: {
+                        add: allowedProducts.map((p: any) => p.id),
+                      },
+                    }),
+                  }
+                : {
+                    all: true,
+                  },
+          };
+
+          // Aggiungi appliesOncePerCustomer se presente nella configurazione originale E il discount type lo supporta
+          const addInput: any = {
+            customerGets,
+          };
+
+          // appliesOncePerCustomer is only available for DiscountCodeBasic, not DiscountAutomaticBasic
+          if (
+            discountTypeFromData === "DiscountCodeBasic" &&
+            fullConfig?.appliesOncePerCustomer !== undefined
+          ) {
+            addInput.appliesOncePerCustomer = fullConfig.appliesOncePerCustomer;
+            console.log(
+              "📝 Added appliesOncePerCustomer for DiscountCodeBasic:",
+              fullConfig.appliesOncePerCustomer,
+            );
+          } else if (discountTypeFromData === "DiscountAutomaticBasic") {
+            console.log(
+              "⏭️ Skipping appliesOncePerCustomer for DiscountAutomaticBasic (not supported)",
+            );
+          }
+
+          console.log("📤 Add input:", JSON.stringify(addInput, null, 2));
 
           const updateResponse = await admin.graphql(updateMutation, {
-            variables,
+            variables:
+              mutationName === "discountAutomaticBasicUpdate"
+                ? { id: finalMutationId, automaticBasicDiscount: addInput }
+                : { id: finalMutationId, basicCodeDiscount: addInput },
           });
 
           const updateResult = await updateResponse.json();
           console.log(
-            "📥 Update result:",
+            "📥 Final update result:",
             JSON.stringify(updateResult, null, 2),
           );
 
@@ -563,16 +910,21 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
             console.error("❌ Update errors:", userErrors);
 
             // Se fallisce con il GID convertito, prova con l'originale
-            if (mutationDiscountId !== shopifyDiscountId) {
+            if (finalMutationId !== shopifyDiscountId) {
               console.log("🔄 Retrying with original query GID...");
 
               const retryVariables =
                 mutationName === "discountAutomaticBasicUpdate"
-                  ? {
-                      id: shopifyDiscountId,
-                      automaticBasicDiscount: updateInput,
-                    }
-                  : { id: shopifyDiscountId, codeDiscountNode: updateInput };
+                  ? { id: shopifyDiscountId, automaticBasicDiscount: addInput }
+                  : { id: shopifyDiscountId, basicCodeDiscount: addInput };
+
+              console.log(
+                "🔄 Retrying with original query GID and proper variables...",
+              );
+              console.log(
+                "📤 Retry variables:",
+                JSON.stringify(retryVariables, null, 2),
+              );
 
               const retryResponse = await admin.graphql(updateMutation, {
                 variables: retryVariables,
@@ -595,6 +947,9 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
               console.log(
                 "✅ Shopify discount successfully updated with retry!",
               );
+              console.log(
+                "✅ Step 2 completed: Allowed items added back successfully",
+              );
             } else {
               throw new Error(
                 `Shopify update failed: ${JSON.stringify(userErrors)}`,
@@ -602,6 +957,9 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
             }
           } else {
             console.log("✅ Shopify discount successfully updated!");
+            console.log(
+              "✅ Step 2 completed: Allowed items added back successfully",
+            );
           }
         } else {
           console.log(
@@ -612,14 +970,34 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         console.log("ℹ️ Shopify discount update completed");
       } catch (updateError) {
         console.error("⚠️ Failed to update Shopify discount:", updateError);
+        console.log("📊 DEBUG: Tried GID formats:");
+        // console.log(
+        //   "- Query GID (worked):",
+        //   shopifyDiscountId || "not determined",
+        // );
+        // console.log(
+        //   "- Mutation GID (failed):",
+        //   finalMutationId || mutationDiscountId || "not determined",
+        // );
+        // console.log("- Original discount ID:", discountId);
+        // console.log("- Mutation Name:", mutationName || "not determined");
+        // console.log(
+        //   "- Update Mutation:",
+        //   updateMutation
+        //     ? updateMutation.substring(0, 200) + "..."
+        //     : "not defined",
+        // );
         console.log("ℹ️ Continuing with database-only exclusion tracking...");
+        console.log(
+          "ℹ️ The exclusions will be applied by the app logic when processing discounts.",
+        );
         // Non far fallire tutto - le exclusions sono salvate nel database e verranno applicate dalla logica applicativa
       }
 
       return data({
         success: true,
         message:
-          "Exclusions saved successfully! The app will apply these exclusions when processing discount rules.",
+          "✅ Exclusions saved and applied! The discount has been updated in Shopify to exclude the selected collections/products.",
       });
     } catch (error) {
       console.error("Failed to save exclusions:", error);

@@ -48,7 +48,6 @@ interface DiscountData {
   value: string;
   discount_codes: Array<{ code: string }>;
   collections_count: number;
-  collections: Array<{ id: string; title: string }>;
   target_selection: string;
   type: string;
   status: string;
@@ -947,9 +946,6 @@ export async function getDiscountCodes(
           const collectionsCount =
             discount.customerGets?.items?.collections?.nodes?.length || 0;
 
-          const collections =
-            discount.customerGets?.items?.collections?.nodes || [];
-
           const discountData: DiscountData = {
             id: extractNumericId(node.id),
             gid: node.id,
@@ -958,7 +954,6 @@ export async function getDiscountCodes(
             value: value,
             discount_codes: discount.codes?.nodes || [],
             collections_count: collectionsCount,
-            collections: collections,
             target_selection: "entitled",
             type: discount.__typename,
             status: discount.status,

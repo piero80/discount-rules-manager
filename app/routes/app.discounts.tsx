@@ -35,6 +35,7 @@ interface DiscountWithCodes {
   value: string;
   discount_codes: Array<{ code: string; usage_count: number }>;
   collections_count: number;
+  collections: Array<{ id: string; title: string }>;
   target_selection: string;
 }
 
@@ -237,6 +238,7 @@ export default function DiscountsPage() {
   const tableRows = discounts.map((discount) => {
     const exclusions = getExclusionsSummary(discount.id);
     const isLoading = loadingAction === `edit-${discount.id}`;
+    console.log(discount, "Rendering table row for discount");
 
     return [
       // Discount Name & Details
@@ -257,6 +259,49 @@ export default function DiscountsPage() {
           ? `${discount.value}%`
           : `$${discount.value}`}
       </Badge>,
+
+      // Associated Collections
+      <div key={`collections-${discount.id}`}>
+        {discount.collections_count > 0 && discount.collections.length > 0 ? (
+          <div>
+            <Text variant="bodyMd" as="p">
+              📁 {discount.collections_count} collection
+              {discount.collections_count > 1 ? "s" : ""}
+            </Text>
+            <div style={{ marginTop: "4px" }}>
+              {discount.collections.slice(0, 3).map((collection, index) => (
+                <Text key={index} variant="bodySm" tone="subdued" as="p">
+                  📁 {collection.title}
+                </Text>
+              ))}
+              {discount.collections.length > 3 && (
+                <Text variant="bodySm" tone="subdued" as="p">
+                  + {discount.collections.length - 3} more...
+                </Text>
+              )}
+            </div>
+          </div>
+        ) : discount.collections_count > 0 ? (
+          <div>
+            <Text variant="bodyMd" as="p">
+              📁 {discount.collections_count} collection
+              {discount.collections_count > 1 ? "s" : ""}
+            </Text>
+            <Text variant="bodySm" tone="subdued" as="p">
+              Target: {discount.target_selection || "Specific collections"}
+            </Text>
+          </div>
+        ) : (
+          <div>
+            <Text variant="bodyMd" tone="subdued" as="p">
+              🌍 All products
+            </Text>
+            <Text variant="bodySm" tone="subdued" as="p">
+              No specific collections
+            </Text>
+          </div>
+        )}
+      </div>,
 
       // Exclusions Summary with Preview
       <div key={`exclusions-${discount.id}`}>
@@ -465,10 +510,11 @@ export default function DiscountsPage() {
                 </div>
 
                 <DataTable
-                  columnContentTypes={["text", "text", "text", "text"]}
+                  columnContentTypes={["text", "text", "text", "text", "text"]}
                   headings={[
                     "Discount",
                     "Value",
+                    "Associated Collections",
                     "Current Exclusions",
                     "Actions",
                   ]}
