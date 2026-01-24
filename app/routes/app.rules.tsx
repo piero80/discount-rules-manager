@@ -28,7 +28,12 @@ import {
   EmptyState,
 } from "@shopify/polaris";
 import { authenticate } from "../shopify.server";
+import type { Session } from "@shopify/shopify-api";
 import { discountRuleHelpers } from "../services/db.server";
+import { SubscriptionService } from "../services/subscription.server";
+import { MultipleRulesList } from "../components/MultipleRulesList";
+import { RulesHeader } from "../components/RulesHeader";
+import { RuleForm } from "../components/RuleForm";
 // import { useShopifyAppBridge } from "../hooks/useShopifyAppBridge";
 
 // Types
@@ -36,6 +41,29 @@ interface Collection {
   id: string;
   title: string;
   productsCount: number;
+}
+
+interface Rule {
+  id: string;
+  name: string;
+  description?: string;
+  mode: "exclude" | "include";
+  priority: number;
+  active: boolean;
+  isScheduled: boolean;
+  scheduledStart?: string;
+  scheduledEnd?: string;
+  excludedCollections: Array<{
+    id: string;
+    title: string;
+    productsCount: number;
+  }>;
+}
+
+interface RuleStats {
+  hasRules: boolean;
+  rulesCount: number;
+  lastActivity: string | null;
 }
 
 interface Stats {
@@ -124,40 +152,51 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     collections = [];
   }
 
-  // Get existing discount rule from database
-  const existingRule = await discountRuleHelpers.getActiveRule(session.shop);
+  // Get all active rules from database (multiple rules support)
+  const allRules = await discountRuleHelpers.getActiveRules(session.shop);
+  const ruleStats = await discountRuleHelpers.getRuleStats(session.shop);
 
-  // Fetch sample discount for debugging
-  // let sampleDiscount = null;
-  // try {
-  //   console.log("🔍 Fetching discounts for debug...");
-  //   const { getDiscountCodes } = await import("../services/discount.server");
-  //   const discounts = await getDiscountCodes(admin);
-  //   console.log("🔍 All discounts found:", discounts.length);
-  //   console.log(
-  //     "🔍 Discounts data:",
-  //     JSON.stringify(discounts.slice(0, 2), null, 2),
-  //   );
-  //   sampleDiscount = discounts.length > 0 ? discounts[0] : null;
-  //   console.log("🔍 Selected sample discount:", sampleDiscount);
-  // } catch (error) {
-  //   console.error("❌ Error fetching sample discount:", error);
-  // }
+  // Get subscription limits for plan enforcement
+  const planLimit = await SubscriptionService.getPlanLimits(session.shop);
 
   return data({
     collections,
-    // sampleDiscount,
-    existingRule: existingRule
-      ? {
-          id: existingRule.id,
-          mode: existingRule.mode as "exclude" | "include",
-          excludedCollections: existingRule.excludedCollections.map((exc) => ({
-            id: exc.collectionId,
-            title: exc.title,
-            productsCount: exc.productsCount,
-          })),
-        }
-      : null,
+    // Support for multiple rules
+    allRules: allRules.map((rule) => ({
+      id: rule.id,
+      name: rule.name,
+      description: rule.description,
+      mode: rule.mode as "exclude" | "include",
+      priority: rule.priority,
+      active: rule.active,
+      isScheduled: rule.isScheduled,
+      scheduledStart: rule.scheduledStart?.toISOString(),
+      scheduledEnd: rule.scheduledEnd?.toISOString(),
+      excludedCollections: rule.excludedCollections.map((exc) => ({
+        id: exc.collectionId,
+        title: exc.title,
+        productsCount: exc.productsCount,
+      })),
+    })),
+    ruleStats: {
+      hasRules: ruleStats.hasRules,
+      rulesCount: ruleStats.rulesCount,
+      lastActivity: ruleStats.lastActivity,
+    },
+    planLimit, // Add plan limits to the response
+    // Backward compatibility - first rule for existing UI components
+    existingRule:
+      allRules.length > 0
+        ? {
+            id: allRules[0].id,
+            mode: allRules[0].mode as "exclude" | "include",
+            excludedCollections: allRules[0].excludedCollections.map((exc) => ({
+              id: exc.collectionId,
+              title: exc.title,
+              productsCount: exc.productsCount,
+            })),
+          }
+        : null,
   });
 };
 
@@ -166,7 +205,43 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const { session } = await authenticate.admin(request);
   const formData = await request.formData();
 
-  // const actionType = formData.get("actionType");
+  const actionType = formData.get("actionType");
+
+  // Handle new multiple rules operations
+  if (actionType === "createRule" || actionType === "updateRule") {
+    // TODO: Temporarily disable plan limits during development
+    // Check plan limits for new rule creation
+    // if (actionType === "createRule") {
+    //   const canCreate = await SubscriptionService.canCreateRule(session.shop);
+    //   if (!canCreate) {
+    //     const planLimit = await SubscriptionService.getPlanLimits(session.shop);
+    //     return data(
+    //       {
+    //         success: false,
+    //         message: `You've reached your plan limit of ${planLimit.max} rules. Upgrade to create more rules.`,
+    //         planLimitReached: true,
+    //       },
+    //       { status: 403 },
+    //     );
+    //   }
+    // }
+
+    return handleRuleCreateOrUpdate(
+      session,
+      formData,
+      actionType === "updateRule",
+    );
+  }
+
+  if (actionType === "deleteRule") {
+    return handleRuleDelete(session, formData);
+  }
+
+  if (actionType === "toggleRule") {
+    return handleRuleToggle(session, formData);
+  }
+
+  // Legacy single rule support (backward compatibility)
   const excludedCollectionsStr = formData.get("excludedCollections");
   const mode = formData.get("mode");
 
@@ -302,20 +377,17 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 export default function RulesPage(): JSX.Element {
   // const { showResourcePicker, showToast } = useShopifyAppBridge();
-  const { collections, existingRule } = useLoaderData() as {
-    collections: Collection[];
-    // sampleDiscount: {
-    //   id: string;
-    //   gid?: string;
-    //   title: string;
-    //   type: string;
-    // } | null;
-    existingRule: {
-      id: string;
-      mode: "exclude" | "include";
-      excludedCollections: Collection[];
-    } | null;
-  };
+  const { collections, existingRule, allRules, ruleStats } =
+    useLoaderData() as {
+      collections: Collection[];
+      allRules: Rule[];
+      ruleStats: RuleStats;
+      existingRule: {
+        id: string;
+        mode: "exclude" | "include";
+        excludedCollections: Collection[];
+      } | null;
+    };
   const submit = useSubmit();
   const navigation = useNavigation();
   const navigate = useNavigate();
@@ -332,23 +404,51 @@ export default function RulesPage(): JSX.Element {
   const [toastActive, setToastActive] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [toastError, setToastError] = useState(false);
-  const isLoading = navigation.state === "submitting";
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
 
-  // Show toast when action completes
-  useEffect(() => {
-    if (actionData) {
-      setToastMessage(actionData.message);
-      setToastError(!actionData.success);
-      setToastActive(true);
-    }
-  }, [actionData]);
+  // All useCallback hooks must be at the top level
+  const handleCreateNewRule = useCallback(() => {
+    setShowCreateForm(true);
+  }, []);
 
-  // Filter collections based on search
-  const filteredCollections = collections.filter(
-    (collection: Collection) =>
-      collection.title.toLowerCase().includes(searchValue.toLowerCase()) &&
-      !excludedCollections.some((exc) => exc.id === collection.id),
+  const handleEditRule = useCallback((ruleId: string) => {
+    setEditingRuleId(ruleId);
+    setShowCreateForm(true);
+  }, []);
+
+  const handleDeleteRule = useCallback(
+    (ruleId: string) => {
+      const formData = new FormData();
+      formData.append("actionType", "deleteRule");
+      formData.append("ruleId", ruleId);
+      submit(formData, { method: "post" });
+    },
+    [submit],
   );
+
+  const handleToggleActive = useCallback(
+    (ruleId: string, active: boolean) => {
+      const formData = new FormData();
+      formData.append("actionType", "toggleRule");
+      formData.append("ruleId", ruleId);
+      formData.append("active", active.toString());
+      submit(formData, { method: "post" });
+    },
+    [submit],
+  );
+
+  const handleFormSave = useCallback(
+    (formData: FormData) => {
+      submit(formData, { method: "post" });
+    },
+    [submit],
+  );
+
+  const handleFormCancel = useCallback(() => {
+    setShowCreateForm(false);
+    setEditingRuleId(null);
+  }, []);
 
   const handleAddExclusion = useCallback(
     (collection: Collection) => {
@@ -366,12 +466,149 @@ export default function RulesPage(): JSX.Element {
     [excludedCollections],
   );
 
-  const handleSave = (): void => {
+  const handleSave = useCallback((): void => {
     const formData = new FormData();
     formData.append("excludedCollections", JSON.stringify(excludedCollections));
     formData.append("mode", selectedMode[0] || "exclude");
     submit(formData, { method: "post" });
+  }, [excludedCollections, selectedMode, submit]);
+
+  const handleSearchChange = useCallback((value: string) => {
+    setSearchValue(value);
+  }, []);
+
+  const handleSearchClear = useCallback(() => {
+    setSearchValue("");
+  }, []);
+
+  const toggleToast = useCallback(() => {
+    setToastActive(false);
+  }, []);
+
+  // Show toast when action completes
+  useEffect(() => {
+    if (actionData) {
+      setToastMessage(actionData.message);
+      setToastError(!actionData.success);
+      setToastActive(true);
+    }
+  }, [actionData]);
+
+  // Computed values
+  const planLimit = {
+    current: allRules.length,
+    max: 1, // Free plan limit
+    planName: "Free",
   };
+
+  const currentMode = selectedMode[0] || "exclude";
+  const isExcludeMode = currentMode === "exclude";
+
+  const stats: Stats = {
+    total: collections.length,
+    excluded: excludedCollections.length,
+    applied: isExcludeMode
+      ? collections.length - excludedCollections.length
+      : excludedCollections.length,
+  };
+
+  const filteredCollections = collections.filter(
+    (collection: Collection) =>
+      collection.title.toLowerCase().includes(searchValue.toLowerCase()) &&
+      !excludedCollections.some((exc) => exc.id === collection.id),
+  );
+
+  const toastMarkup = toastActive ? (
+    <Toast content={toastMessage} onDismiss={toggleToast} error={toastError} />
+  ) : null;
+
+  // Handle empty collections state first
+  if (collections.length === 0) {
+    return (
+      <Frame>
+        {toastMarkup}
+        <Page
+          title="Smart Discount Rules"
+          backAction={{
+            content: "Dashboard",
+            onAction: () => navigate("/app"),
+          }}
+        >
+          <Layout>
+            <Layout.Section>
+              <EmptyState
+                heading="No collections found"
+                image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
+              >
+                <p>
+                  You need to create collections in your Shopify admin before
+                  setting up discount rules. Collections help organize your
+                  products and control which items receive discounts.
+                </p>
+              </EmptyState>
+            </Layout.Section>
+          </Layout>
+        </Page>
+      </Frame>
+    );
+  }
+
+  // Show new UI for multiple rules
+  if (allRules.length > 0 || showCreateForm) {
+    return (
+      <Frame>
+        {toastMarkup}
+        <Page
+          title="Discount Rules"
+          backAction={{
+            content: "Dashboard",
+            onAction: () => navigate("/app"),
+          }}
+        >
+          <Layout>
+            <Layout.Section>
+              <RulesHeader
+                ruleStats={ruleStats}
+                onCreateNewRule={handleCreateNewRule}
+                planLimit={planLimit}
+              />
+            </Layout.Section>
+
+            {allRules.length > 0 && (
+              <Layout.Section>
+                <MultipleRulesList
+                  rules={allRules}
+                  onEdit={handleEditRule}
+                  onDelete={handleDeleteRule}
+                  onToggleActive={handleToggleActive}
+                />
+              </Layout.Section>
+            )}
+
+            {showCreateForm && (
+              <Layout.Section>
+                <RuleForm
+                  rule={
+                    editingRuleId
+                      ? allRules.find((r) => r.id === editingRuleId)
+                      : null
+                  }
+                  collections={collections}
+                  onSave={handleFormSave}
+                  onCancel={handleFormCancel}
+                  isLoading={navigation.state !== "idle"}
+                  maxPriority={Math.max(...allRules.map((r) => r.priority), 0)}
+                  planLimit={planLimit}
+                />
+              </Layout.Section>
+            )}
+          </Layout>
+        </Page>
+      </Frame>
+    );
+  }
+
+  // Legacy single rule UI (fallback per compatibilità)
   // App Bridge demo functions
   // const handleTestResourcePicker = async (): Promise<void> => {
   //   try {
@@ -415,64 +652,6 @@ export default function RulesPage(): JSX.Element {
   //   submit(formData, { method: "post" });
   // };
 
-  const handleSearchChange = useCallback((value: string) => {
-    setSearchValue(value);
-  }, []);
-
-  const handleSearchClear = useCallback(() => {
-    setSearchValue("");
-  }, []);
-
-  const toggleToast = useCallback(() => {
-    setToastActive(false);
-  }, []);
-
-  const currentMode = selectedMode[0] || "exclude";
-  const isExcludeMode = currentMode === "exclude";
-
-  const stats: Stats = {
-    total: collections.length,
-    excluded: excludedCollections.length,
-    applied: isExcludeMode
-      ? collections.length - excludedCollections.length
-      : excludedCollections.length,
-  };
-
-  const toastMarkup = toastActive ? (
-    <Toast content={toastMessage} onDismiss={toggleToast} error={toastError} />
-  ) : null;
-
-  // Handle empty collections state
-  if (collections.length === 0) {
-    return (
-      <Frame>
-        {toastMarkup}
-        <Page
-          title="Smart Discount Rules"
-          backAction={{
-            content: "Dashboard",
-            onAction: () => navigate("/app"),
-          }}
-        >
-          <Layout>
-            <Layout.Section>
-              <EmptyState
-                heading="No collections found"
-                image="https://cdn.shopify.com/s/files/1/0262/4071/2726/files/emptystate-files.png"
-              >
-                <p>
-                  You need to create collections in your Shopify admin before
-                  setting up discount rules. Collections help organize your
-                  products and control which items receive discounts.
-                </p>
-              </EmptyState>
-            </Layout.Section>
-          </Layout>
-        </Page>
-      </Frame>
-    );
-  }
-
   return (
     <Frame>
       {toastMarkup}
@@ -485,7 +664,7 @@ export default function RulesPage(): JSX.Element {
         backAction={{ content: "Dashboard", onAction: () => navigate("/app") }}
         primaryAction={{
           content: "Save Rules",
-          loading: isLoading,
+          loading: navigation.state !== "idle",
           onAction: handleSave,
         }}
         secondaryActions={[
@@ -779,4 +958,168 @@ export default function RulesPage(): JSX.Element {
       </Page>
     </Frame>
   );
+}
+
+// Helper functions for rule operations
+async function handleRuleCreateOrUpdate(
+  session: Session,
+  formData: FormData,
+  isUpdate: boolean,
+) {
+  try {
+    const name = formData.get("name") as string;
+    const description = formData.get("description") as string;
+    const mode = formData.get("mode") as "exclude" | "include";
+    const priority = parseInt(formData.get("priority") as string);
+    const active = formData.get("active") === "true";
+    const isScheduled = formData.get("isScheduled") === "true";
+    const scheduledStart = formData.get("scheduledStart") as string;
+    const scheduledEnd = formData.get("scheduledEnd") as string;
+    const excludedCollectionsStr = formData.get(
+      "excludedCollections",
+    ) as string;
+
+    if (!name || !mode || isNaN(priority)) {
+      return data(
+        { success: false, message: "Missing required fields" },
+        { status: 400 },
+      );
+    }
+
+    const excludedCollections = JSON.parse(excludedCollectionsStr || "[]");
+
+    const ruleData = {
+      name: name.trim(),
+      description: description?.trim() || undefined,
+      shop: session.shop,
+      mode,
+      priority,
+      active,
+      isScheduled,
+      scheduledStart:
+        isScheduled && scheduledStart ? new Date(scheduledStart) : undefined,
+      scheduledEnd:
+        isScheduled && scheduledEnd ? new Date(scheduledEnd) : undefined,
+      excludedCollections: excludedCollections.map(
+        (collection: Collection) => ({
+          collectionId: collection.id,
+          title: collection.title,
+          productsCount: collection.productsCount,
+        }),
+      ),
+    };
+
+    let savedRule;
+    if (isUpdate) {
+      const ruleId = formData.get("ruleId") as string;
+      if (!ruleId) {
+        return data(
+          { success: false, message: "Rule ID required for update" },
+          { status: 400 },
+        );
+      }
+      savedRule = await discountRuleHelpers.updateRule(ruleId, ruleData);
+    } else {
+      savedRule = await discountRuleHelpers.createRule(session.shop, ruleData);
+    }
+
+    await discountRuleHelpers.logAction(
+      session.shop,
+      isUpdate ? "rule_updated" : "rule_created",
+      savedRule.id,
+      {
+        name,
+        mode,
+        priority,
+        active,
+        isScheduled,
+        excludedCount: excludedCollections.length,
+        timestamp: new Date().toISOString(),
+      },
+    );
+
+    return data({
+      success: true,
+      message: `Rule ${isUpdate ? "updated" : "created"} successfully!`,
+      ruleId: savedRule.id,
+    });
+  } catch (error) {
+    await discountRuleHelpers.logAction(
+      session.shop,
+      isUpdate ? "rule_update_error" : "rule_create_error",
+      undefined,
+      {
+        error: error instanceof Error ? error.message : "Unknown error",
+        timestamp: new Date().toISOString(),
+      },
+    );
+
+    return data(
+      {
+        success: false,
+        message: `Failed to ${isUpdate ? "update" : "create"} rule. Please try again.`,
+      },
+      { status: 500 },
+    );
+  }
+}
+
+async function handleRuleDelete(session: Session, formData: FormData) {
+  try {
+    const ruleId = formData.get("ruleId") as string;
+
+    if (!ruleId) {
+      return data(
+        { success: false, message: "Rule ID required" },
+        { status: 400 },
+      );
+    }
+
+    await discountRuleHelpers.deleteRule(ruleId);
+
+    await discountRuleHelpers.logAction(session.shop, "rule_deleted", ruleId, {
+      timestamp: new Date().toISOString(),
+    });
+
+    return data({
+      success: true,
+      message: "Rule deleted successfully!",
+    });
+  } catch (error) {
+    return data(
+      { success: false, message: "Failed to delete rule. Please try again." },
+      { status: 500 },
+    );
+  }
+}
+
+async function handleRuleToggle(session: Session, formData: FormData) {
+  try {
+    const ruleId = formData.get("ruleId") as string;
+    const active = formData.get("active") === "true";
+
+    if (!ruleId) {
+      return data(
+        { success: false, message: "Rule ID required" },
+        { status: 400 },
+      );
+    }
+
+    await discountRuleHelpers.updateRule(ruleId, { active });
+
+    await discountRuleHelpers.logAction(session.shop, "rule_toggled", ruleId, {
+      active,
+      timestamp: new Date().toISOString(),
+    });
+
+    return data({
+      success: true,
+      message: `Rule ${active ? "activated" : "deactivated"} successfully!`,
+    });
+  } catch (error) {
+    return data(
+      { success: false, message: "Failed to toggle rule. Please try again." },
+      { status: 500 },
+    );
+  }
 }

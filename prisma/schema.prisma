@@ -28,20 +28,48 @@ model Session {
   emailVerified Boolean?  @default(false)
 }
 
-// Discount Rules - La tua feature principale
+// Subscription management for Basic Plan
+model Subscription {
+  id                 String    @id @default(cuid())
+  shop               String    @unique
+  planName           String    @default("FREE") // "FREE", "BASIC", "PRO"
+  status             String    @default("ACTIVE") // "ACTIVE", "CANCELED", "TRIAL"
+  maxRules           Int       @default(2)
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  trialEndsAt        DateTime?
+  shopifyChargeId    String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([shop])
+}
+
+// Multiple Global Discount Rules - Basic Plan feature
 model DiscountRule {
-  id        String   @id @default(cuid())
-  shop      String
-  mode      String   @default("exclude") // "exclude" o "include"
-  active    Boolean  @default(true)
+  id          String  @id @default(cuid())
+  shop        String
+  name        String  @default("Rule")
+  description String?
+  mode        String  @default("exclude") // "exclude" o "include"
+  active      Boolean @default(true)
+  priority    Int     @default(0) // 0 = highest priority
+
+  // Basic Plan - Scheduling fields
+  scheduledStart DateTime?
+  scheduledEnd   DateTime?
+  isScheduled    Boolean   @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   // Relations
   excludedCollections ExcludedCollection[]
 
-  @@unique([shop])
+  // Multiple rules allowed per shop (removed unique constraint)
   @@index([shop, active])
+  @@index([shop, priority])
+  @@index([scheduledStart, scheduledEnd])
 }
 
 // Collections escluse dalle regole
