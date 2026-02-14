@@ -27,6 +27,7 @@ export interface CreateDiscountRuleData {
   name?: string;
   description?: string;
   mode: "exclude" | "include";
+  active?: boolean;
   priority?: number;
   scheduledStart?: Date;
   scheduledEnd?: Date;
@@ -56,6 +57,19 @@ export interface UpdateDiscountRuleData {
 
 // Helper functions per le multiple global discount rules
 export const discountRuleHelpers = {
+  // Test database connectivity
+  async testConnection() {
+    try {
+      console.log("🔌 DEBUG: Testing database connection...");
+      const result = await prisma.$queryRaw`SELECT 1 as test`;
+      console.log("✅ DEBUG: Database connection successful:", result);
+      return true;
+    } catch (error) {
+      console.error("❌ DEBUG: Database connection failed:", error);
+      return false;
+    }
+  },
+
   // Ottieni tutte le regole attive per uno shop (ordinate per priorità)
   async getActiveRules(shop: string) {
     return prisma.discountRule.findMany({
@@ -116,6 +130,8 @@ export const discountRuleHelpers = {
         mode: true,
         priority: true,
         isScheduled: true,
+        scheduledStart: true,
+        scheduledEnd: true,
         updatedAt: true,
         _count: {
           select: {
@@ -135,6 +151,8 @@ export const discountRuleHelpers = {
         mode: rule.mode,
         priority: rule.priority,
         isScheduled: rule.isScheduled,
+        scheduledStart: rule.scheduledStart?.toISOString(),
+        scheduledEnd: rule.scheduledEnd?.toISOString(),
         excludedCount: rule._count.excludedCollections,
       })),
       lastActivity: rules.length > 0 ? rules[0].updatedAt?.toISOString() : null,
@@ -143,25 +161,42 @@ export const discountRuleHelpers = {
 
   // Crea una nuova regola (multiple rules allowed)
   async createRule(shop: string, data: CreateDiscountRuleData) {
-    return prisma.discountRule.create({
-      data: {
+    try {
+      console.log("📦 DEBUG: Creating rule in database", {
         shop: data.shop,
-        name: data.name || "Rule",
-        description: data.description,
+        name: data.name,
         mode: data.mode,
-        priority: data.priority || 0,
-        scheduledStart: data.scheduledStart,
-        scheduledEnd: data.scheduledEnd,
-        isScheduled: data.isScheduled || false,
-        active: true,
-        excludedCollections: {
-          create: data.excludedCollections,
+        active: data.active,
+        isScheduled: data.isScheduled,
+        collectionsCount: data.excludedCollections.length,
+      });
+
+      const result = await prisma.discountRule.create({
+        data: {
+          shop: data.shop,
+          name: data.name || "Rule",
+          description: data.description,
+          mode: data.mode,
+          priority: data.priority || 0,
+          scheduledStart: data.scheduledStart,
+          scheduledEnd: data.scheduledEnd,
+          isScheduled: data.isScheduled || false,
+          active: data.active ?? true, // Use data.active if provided, default to true
+          excludedCollections: {
+            create: data.excludedCollections,
+          },
         },
-      },
-      include: {
-        excludedCollections: true,
-      },
-    });
+        include: {
+          excludedCollections: true,
+        },
+      });
+
+      console.log("✅ DEBUG: Rule created successfully:", result.id);
+      return result;
+    } catch (error) {
+      console.error("❌ DEBUG: Database error during rule creation:", error);
+      throw error;
+    }
   },
 
   // Backward compatibility - mantiene l'interfaccia esistente
@@ -189,7 +224,7 @@ export const discountRuleHelpers = {
           scheduledStart: data.scheduledStart,
           scheduledEnd: data.scheduledEnd,
           isScheduled: data.isScheduled || false,
-          active: true,
+          active: data.active ?? true, // Use data.active if provided, default to true
           updatedAt: new Date(),
           excludedCollections: {
             create: data.excludedCollections,
@@ -207,43 +242,103 @@ export const discountRuleHelpers = {
 
   // Aggiorna una regola esistente
   async updateRule(ruleId: string, data: Partial<UpdateDiscountRuleData>) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const updateData: any = {
-      updatedAt: new Date(),
-    };
-
-    // Aggiorna solo i campi forniti
-    if (data.name !== undefined) updateData.name = data.name;
-    if (data.description !== undefined)
-      updateData.description = data.description;
-    if (data.mode !== undefined) updateData.mode = data.mode;
-    if (data.active !== undefined) updateData.active = data.active;
-    if (data.priority !== undefined) updateData.priority = data.priority;
-    if (data.scheduledStart !== undefined)
-      updateData.scheduledStart = data.scheduledStart;
-    if (data.scheduledEnd !== undefined)
-      updateData.scheduledEnd = data.scheduledEnd;
-    if (data.isScheduled !== undefined)
-      updateData.isScheduled = data.isScheduled;
-
-    // Se ci sono collezioni escluse da aggiornare
-    if (data.excludedCollections) {
-      // Prima elimina tutte le collezioni esistenti
-      await prisma.excludedCollection.deleteMany({
-        where: { ruleId },
+    try {
+      console.log("🔄 DEBUG: Updating rule in database", {
+        ruleId,
+        hasName: !!data.name,
+        hasActive: data.active !== undefined,
+        activeValue: data.active,
+        hasCollections: !!data.excludedCollections,
+        collectionsCount: data.excludedCollections?.length || 0,
       });
 
-      // Poi crea le nuove
-      updateData.excludedCollections = {
-        create: data.excludedCollections,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updateData: any = {
+        updatedAt: new Date(),
       };
-    }
 
-    return prisma.discountRule.update({
+      // Aggiorna solo i campi forniti
+      if (data.name !== undefined) updateData.name = data.name;
+      if (data.description !== undefined)
+        updateData.description = data.description;
+      if (data.mode !== undefined) updateData.mode = data.mode;
+      if (data.active !== undefined) {
+        console.log("🔄 DEBUG: Updating active field:", {
+          oldActive: "unknown", // We don't have the old value here
+          newActive: data.active,
+          activeType: typeof data.active,
+        });
+        updateData.active = data.active;
+      }
+      if (data.priority !== undefined) updateData.priority = data.priority;
+      if (data.scheduledStart !== undefined)
+        updateData.scheduledStart = data.scheduledStart;
+      if (data.scheduledEnd !== undefined)
+        updateData.scheduledEnd = data.scheduledEnd;
+      if (data.isScheduled !== undefined)
+        updateData.isScheduled = data.isScheduled;
+
+      // Se ci sono collezioni escluse da aggiornare
+      if (data.excludedCollections) {
+        console.log("🔄 DEBUG: Updating excluded collections");
+        // Prima elimina tutte le collezioni esistenti
+        await prisma.excludedCollection.deleteMany({
+          where: { ruleId },
+        });
+        console.log("🗑️ DEBUG: Deleted existing collections");
+
+        // Poi crea le nuove
+        updateData.excludedCollections = {
+          create: data.excludedCollections,
+        };
+        console.log(
+          "➕ DEBUG: Adding new collections:",
+          data.excludedCollections.length,
+        );
+      }
+
+      console.log("🔄 DEBUG: Final updateData before Prisma update:", {
+        ...updateData,
+        excludedCollections: updateData.excludedCollections
+          ? "updating"
+          : "not updating",
+      });
+
+      const result = await prisma.discountRule.update({
+        where: { id: ruleId },
+        data: updateData,
+        include: {
+          excludedCollections: true,
+        },
+      });
+
+      console.log("✅ DEBUG: Rule updated successfully:", {
+        id: result.id,
+        name: result.name,
+        active: result.active,
+        activeType: typeof result.active,
+      });
+      return result;
+    } catch (error) {
+      console.error("❌ DEBUG: Database error during rule update:", error);
+      throw error;
+    }
+  },
+
+  // Ottieni una regola specifica per ID
+  async getRuleById(ruleId: string) {
+    return prisma.discountRule.findUnique({
       where: { id: ruleId },
-      data: updateData,
       include: {
-        excludedCollections: true,
+        excludedCollections: {
+          select: {
+            id: true,
+            collectionId: true,
+            title: true,
+            productsCount: true,
+            createdAt: true,
+          },
+        },
       },
     });
   },
@@ -258,16 +353,26 @@ export const discountRuleHelpers = {
     });
   },
 
-  // Ottieni tutte le regole per uno shop
+  // Ottieni tutte le regole per uno shop (attive e disattivate)
   async getAllRules(shop: string) {
     return prisma.discountRule.findMany({
       where: { shop },
       include: {
-        excludedCollections: true,
+        excludedCollections: {
+          select: {
+            id: true,
+            collectionId: true,
+            title: true,
+            productsCount: true,
+            createdAt: true,
+          },
+        },
       },
-      orderBy: {
-        createdAt: "desc",
-      },
+      orderBy: [
+        { active: "desc" }, // attive prima
+        { priority: "asc" }, // 0 = highest priority
+        { updatedAt: "desc" },
+      ],
     });
   },
 

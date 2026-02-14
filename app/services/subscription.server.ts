@@ -30,7 +30,8 @@ export const PLAN_CONFIGS = {
       "Multiple rules (up to 10)",
       "Priority management",
       "Rule scheduling",
-      "Enhanced analytics",
+      "Apply specific rules",
+      "Basic analytics dashboard",
     ],
   },
   PRO: {
@@ -39,7 +40,10 @@ export const PLAN_CONFIGS = {
     price: 19.99,
     features: [
       "Unlimited rules",
+      "Priority management",
       "Advanced automation",
+      "Rule scheduling",
+      "Apply specific rules",
       "Bulk operations",
       "Premium support",
     ],
@@ -124,17 +128,19 @@ export class SubscriptionService {
   }
 
   /**
-   * Upgrade subscription (will integrate with Shopify Billing API)
+   * Change plan (upgrade or downgrade) - No billing integration
    */
-  static async upgradeSubscription(
+  static async changePlan(
     shop: string,
-    newPlan: "BASIC" | "PRO",
-    shopifyChargeId?: string,
+    newPlan: "FREE" | "BASIC" | "PRO",
   ): Promise<void> {
     const config = PLAN_CONFIGS[newPlan];
     const currentPeriodStart = new Date();
     const currentPeriodEnd = new Date();
-    currentPeriodEnd.setMonth(currentPeriodEnd.getMonth() + 1);
+    // Only set period for paid plans
+    if (newPlan !== "FREE") {
+      currentPeriodEnd.setMonth(currentPeriodEnd.getMonth() + 1);
+    }
 
     await prisma.subscription.upsert({
       where: { shop },
@@ -142,9 +148,9 @@ export class SubscriptionService {
         planName: newPlan,
         status: "ACTIVE",
         maxRules: config.maxRules,
-        currentPeriodStart,
-        currentPeriodEnd,
-        shopifyChargeId: shopifyChargeId || undefined,
+        currentPeriodStart: newPlan !== "FREE" ? currentPeriodStart : null,
+        currentPeriodEnd: newPlan !== "FREE" ? currentPeriodEnd : null,
+        shopifyChargeId: null, // No billing integration
         updatedAt: new Date(),
       },
       create: {
@@ -152,11 +158,22 @@ export class SubscriptionService {
         planName: newPlan,
         status: "ACTIVE",
         maxRules: config.maxRules,
-        currentPeriodStart,
-        currentPeriodEnd,
-        shopifyChargeId: shopifyChargeId || undefined,
+        currentPeriodStart: newPlan !== "FREE" ? currentPeriodStart : null,
+        currentPeriodEnd: newPlan !== "FREE" ? currentPeriodEnd : null,
+        shopifyChargeId: null, // No billing integration
       },
     });
+  }
+
+  /**
+   * Upgrade subscription (legacy method - use changePlan instead)
+   * @deprecated Use changePlan for better flexibility
+   */
+  static async upgradeSubscription(
+    shop: string,
+    newPlan: "BASIC" | "PRO",
+  ): Promise<void> {
+    await this.changePlan(shop, newPlan);
   }
 
   /**

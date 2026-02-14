@@ -24,6 +24,9 @@ export function AppNavigation() {
       <Link to="/app/discounts" style={{ textDecoration: "none" }}>
         <s-link>Manage Discounts</s-link>
       </Link>
+      <Link to="/app/pricing" style={{ textDecoration: "none" }}>
+        <s-link>⭐ Pricing</s-link>
+      </Link>
       {/* <Link to="/app/test" style={{ textDecoration: "none" }}>
         <s-link>🧪 Test</s-link>
       </Link> */}

@@ -7,6 +7,7 @@ import {
   Divider,
 } from "@shopify/polaris";
 import { PlusIcon } from "@shopify/polaris-icons";
+import { useNavigate } from "react-router";
 
 interface RuleStats {
   hasRules: boolean;
@@ -16,7 +17,6 @@ interface RuleStats {
 
 interface RulesHeaderProps {
   ruleStats: RuleStats;
-  onCreateNewRule: () => void;
   planLimit?: {
     current: number;
     max: number;
@@ -24,11 +24,8 @@ interface RulesHeaderProps {
   };
 }
 
-export function RulesHeader({
-  ruleStats,
-  onCreateNewRule,
-  planLimit,
-}: RulesHeaderProps) {
+export function RulesHeader({ ruleStats, planLimit }: RulesHeaderProps) {
+  const navigate = useNavigate();
   // TODO: Temporarily disable plan limits during development
   const isAtLimit = false;
   // const isAtLimit = planLimit && planLimit.current >= planLimit.max;
@@ -42,7 +39,9 @@ export function RulesHeader({
           </Text>
           <InlineStack gap="200" blockAlign="center">
             <Text variant="bodyMd" tone="subdued" as="span">
-              Manage multiple rules with priority and scheduling
+              {planLimit?.planName === "FREE"
+                ? "Manage your discount rules settings"
+                : "Manage multiple rules with priority and scheduling"}
             </Text>
 
             <Divider />
@@ -70,7 +69,7 @@ export function RulesHeader({
           <Button
             variant="primary"
             icon={PlusIcon}
-            onClick={onCreateNewRule}
+            onClick={() => navigate("/app/rules/new")}
             disabled={isAtLimit}
             accessibilityLabel="Create new rule"
           >

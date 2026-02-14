@@ -202,6 +202,7 @@ export async function runAllTestScenarios(): Promise<TestResult[]> {
     testNoActiveRule,
     testSpecialCharacterCollections,
     testLargeCollectionSet,
+    testScheduledRules, // NEW: Test scheduling functionality
   ];
 
   const results: TestResult[] = [];
@@ -288,3 +289,71 @@ export const ERROR_HANDLING_TESTS = [
     expectedBehavior: "Should validate and show specific error message",
   },
 ];
+/**
+ * Test scenario: Scheduled Rules at Different Times
+ */
+export async function testScheduledRules(): Promise<TestResult> {
+  try {
+    const { discountRuleHelpers } = await import("./db.server");
+    const testShop = "test-shop.myshopify.com";
+
+    // Test times
+    const now = new Date();
+    const past = new Date(now.getTime() - 2 * 60 * 60 * 1000); // 2h ago
+    const future = new Date(now.getTime() + 2 * 60 * 60 * 1000); // 2h future
+
+    // Test scenarios
+    const scenarios = [
+      {
+        name: "Current Time",
+        time: now,
+        description: "Rules active right now",
+      },
+      {
+        name: "Past Time",
+        time: past,
+        description: "Rules that were active 2h ago",
+      },
+      {
+        name: "Future Time",
+        time: future,
+        description: "Rules that will be active in 2h",
+      },
+    ];
+
+    const results = [];
+
+    for (const scenario of scenarios) {
+      const activeRules = await discountRuleHelpers.getActiveRulesAtTime(
+        testShop,
+        scenario.time,
+      );
+
+      results.push({
+        scenario: scenario.name,
+        time: scenario.time.toISOString(),
+        description: scenario.description,
+        activeRuleCount: activeRules.length,
+        rules: activeRules.map((rule) => ({
+          id: rule.id,
+          name: rule.name,
+          scheduledStart: rule.scheduledStart?.toISOString(),
+          scheduledEnd: rule.scheduledEnd?.toISOString(),
+          isScheduled: rule.isScheduled,
+        })),
+      });
+    }
+
+    return {
+      success: true,
+      message: `Tested ${scenarios.length} time scenarios`,
+      data: { testResults: results },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      message: "Failed to test scheduled rules",
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import {
   Card,
   ResourceList,
@@ -10,12 +11,13 @@ import {
   ButtonGroup,
   Icon,
   Tooltip,
+  BlockStack,
 } from "@shopify/polaris";
 import {
-  EditIcon,
   DeleteIcon,
   ClockIcon,
   DragHandleIcon,
+  ViewIcon,
 } from "@shopify/polaris-icons";
 
 // Types
@@ -38,17 +40,22 @@ interface Rule {
 
 interface MultipleRulesListProps {
   rules: Rule[];
-  onEdit: (ruleId: string) => void;
   onDelete: (ruleId: string) => void;
   onToggleActive: (ruleId: string, active: boolean) => void;
+  planLimit?: {
+    current: number;
+    max: number;
+    planName: string;
+  };
 }
 
 export function MultipleRulesList({
   rules,
-  onEdit,
   onDelete,
   onToggleActive,
+  planLimit,
 }: MultipleRulesListProps) {
+  const navigate = useNavigate();
   const [expandedRules, setExpandedRules] = useState<Set<string>>(new Set());
 
   const toggleExpanded = (ruleId: string) => {
@@ -67,12 +74,23 @@ export function MultipleRulesList({
     const start = rule.scheduledStart ? new Date(rule.scheduledStart) : null;
     const end = rule.scheduledEnd ? new Date(rule.scheduledEnd) : null;
 
+    const formatDateTime = (date: Date) => {
+      return date.toLocaleString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      });
+    };
+
     if (start && end) {
-      return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`;
+      return `${formatDateTime(start)} - ${formatDateTime(end)}`;
     } else if (start) {
-      return `From ${start.toLocaleDateString()}`;
+      return `From ${formatDateTime(start)}`;
     } else if (end) {
-      return `Until ${end.toLocaleDateString()}`;
+      return `Until ${formatDateTime(end)}`;
     }
     return "Custom Schedule";
   };
@@ -94,10 +112,12 @@ export function MultipleRulesList({
     <Card>
       <div style={{ padding: "1rem 0" }}>
         <Text variant="headingMd" as="h2">
-          Active Rules ({rules.length})
+          Discount Rules ({rules.length})
         </Text>
         <Text variant="bodyMd" as="p" tone="subdued">
-          Rules are applied in priority order (lower numbers = higher priority)
+          {planLimit?.planName === "FREE"
+            ? "Rules can be manually enabled/disabled. Upgrade to Basic for priority management and scheduling features."
+            : "Rules can be manually enabled/disabled and are automatically activated based on their schedule. A rule is active only if enabled AND within its scheduled time window."}
         </Text>
       </div>
 
@@ -144,26 +164,42 @@ export function MultipleRulesList({
                               : "Include Only"}
                           </Badge>
 
-                          <Badge
-                            size="small"
-                            tone={currentlyActive ? "success" : "info"}
-                          >
-                            {`Priority ${rule.priority.toString()}`}
-                          </Badge>
-
-                          {rule.isScheduled && (
-                            <Tooltip content={formatSchedule(rule)}>
-                              <Badge size="small" tone="info" icon={ClockIcon}>
-                                Scheduled
-                              </Badge>
-                            </Tooltip>
+                          {planLimit?.planName !== "FREE" && (
+                            <Badge
+                              size="small"
+                              tone={currentlyActive ? "success" : "info"}
+                            >
+                              {`Priority ${rule.priority.toString()}`}
+                            </Badge>
                           )}
 
+                          {rule.isScheduled &&
+                            planLimit?.planName !== "FREE" && (
+                              <Tooltip content={formatSchedule(rule)}>
+                                <Badge
+                                  size="small"
+                                  tone="info"
+                                  icon={ClockIcon}
+                                >
+                                  Scheduled
+                                </Badge>
+                              </Tooltip>
+                            )}
+
+                          <Badge
+                            size="small"
+                            tone={rule.active ? "success" : "critical"}
+                          >
+                            {rule.active ? "Enabled" : "Disabled"}
+                          </Badge>
+
                           <Badge
                             size="small"
                             tone={currentlyActive ? "success" : "info"}
                           >
-                            {currentlyActive ? "Active" : "Inactive"}
+                            {currentlyActive
+                              ? "Currently Active"
+                              : "Currently Inactive"}
                           </Badge>
                         </InlineStack>
 
@@ -179,12 +215,14 @@ export function MultipleRulesList({
                       <Button
                         size="micro"
                         variant="tertiary"
-                        icon={EditIcon}
+                        icon={ViewIcon}
                         onClick={() => {
-                          onEdit(rule.id);
+                          navigate(`/app/rules/${rule.id}`);
                         }}
-                        accessibilityLabel="Edit rule"
-                      />
+                        accessibilityLabel="View rule details"
+                      >
+                        View
+                      </Button>
                       <Button
                         size="micro"
                         variant="tertiary"
@@ -193,10 +231,12 @@ export function MultipleRulesList({
                           onToggleActive(rule.id, !rule.active);
                         }}
                         accessibilityLabel={
-                          rule.active ? "Deactivate rule" : "Activate rule"
+                          rule.active
+                            ? "Disable rule (can still be scheduled)"
+                            : "Enable rule"
                         }
                       >
-                        {rule.active ? "Deactivate" : "Activate"}
+                        {rule.active ? "Disable" : "Enable"}
                       </Button>
                       <Button
                         size="micro"
@@ -244,7 +284,7 @@ export function MultipleRulesList({
                           </div>
                         </div>
 
-                        {rule.isScheduled && (
+                        {rule.isScheduled && planLimit?.planName !== "FREE" && (
                           <div>
                             <Text
                               variant="bodyMd"
@@ -266,6 +306,44 @@ export function MultipleRulesList({
             );
           }}
         />
+      )}
+
+      {/* Upgrade prompt for FREE users */}
+      {planLimit?.planName === "FREE" && rules.length > 0 && (
+        <div
+          style={{
+            padding: "1rem",
+            borderTop: "1px solid #e1e3e5",
+            marginTop: "1rem",
+          }}
+        >
+          <BlockStack gap="300">
+            <InlineStack gap="200" blockAlign="center">
+              <Badge tone="attention">Premium Features</Badge>
+              <Text variant="headingSm" as="h3">
+                🌟 Unlock Advanced Rule Management
+              </Text>
+            </InlineStack>
+            <Text variant="bodyMd" as="p">
+              Want more control over your rules? Upgrade to Basic or Pro plan
+              for:
+            </Text>
+            <BlockStack gap="100">
+              <Text variant="bodySm" as="p">
+                • 🎯 <strong>Priority Management:</strong> Set custom order of
+                rule execution
+              </Text>
+              <Text variant="bodySm" as="p">
+                • ⏰ <strong>Rule Scheduling:</strong> Automatically
+                activate/deactivate rules by date & time
+              </Text>
+              <Text variant="bodySm" as="p">
+                • 🔧 <strong>Apply Specific Rules:</strong> Target individual
+                discounts with specific rules
+              </Text>
+            </BlockStack>
+          </BlockStack>
+        </div>
       )}
     </Card>
   );

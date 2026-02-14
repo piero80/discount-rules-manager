@@ -847,21 +847,8 @@ async function updateDiscountCodeBasic(
       admin,
       discountId,
     );
-    console.log("📊 DEBUG: Current collections:", currentCollections);
-    console.log("🔄 DEBUG: Target collections to set:", collectionGids);
-
-    if (collectionGids.length === 0) {
-      console.log(
-        "⚠️ DEBUG: No target collections - will exclude ALL collections (items: { all: true })",
-      );
-    } else {
-      console.log(
-        `✅ DEBUG: Will set ${collectionGids.length} specific collections`,
-      );
-    }
     // Fase 2: Se ci sono collezioni esistenti, rimuovile prima
     if (currentCollections.length > 0) {
-      console.log("�️ Removing existing collections:", currentCollections);
       const removeResult = await removeCollectionsFromDiscount(
         admin,
         discountId,
@@ -874,9 +861,7 @@ async function updateDiscountCodeBasic(
         );
       }
     }
-
     // Fase 3: Sostituisci completamente le collezioni
-    console.log("🔄 Replacing collections completely:", collectionGids);
     return await replaceDiscountCollections(
       admin,
       discountId,
@@ -910,7 +895,6 @@ async function updateDiscountAutomaticBasic(
 
     // Fase 2: Se ci sono collezioni esistenti, rimuovile prima
     if (currentCollections.length > 0) {
-      console.log("🗑️ Removing existing collections:", currentCollections);
       const removeResult = await removeCollectionsFromDiscount(
         admin,
         discountId,
@@ -925,7 +909,6 @@ async function updateDiscountAutomaticBasic(
     }
 
     // Fase 3: Sostituisci completamente le collezioni
-    console.log("🔄 Replacing collections completely:", collectionGids);
     return await replaceDiscountCollections(
       admin,
       discountId,
@@ -969,8 +952,8 @@ export async function getAllCollections(admin: AdminType) {
 }
 
 /**
- * Applica le regole di esclusione SOLO alle collezioni specificate (non a tutte le collezioni dello shop)
- * Questa funzione rispetta le collezioni già configurate nel discount
+ * Applica tutte le regole attive SOLO alle collezioni specificate (non a tutte le collezioni dello shop)
+ * Questa funzione rispetta le collezioni già configurate nel discount e applica regole in ordine di priorità
  */
 async function applyRulesToCollections(
   shop: string,
@@ -982,12 +965,16 @@ async function applyRulesToCollections(
   );
 
   console.log(
-    `🎯 Applying rules to ${validCollections.length} existing discount collections (not all shop collections)`,
+    `🎯 Applying multiple rules to ${validCollections.length} existing discount collections (not all shop collections)`,
   );
 
-  const rule = await discountRuleHelpers.getActiveRule(shop);
+  // Get ALL active rules ordered by priority (NEW!)
+  const activeRules = await discountRuleHelpers.getActiveRulesAtTime(shop);
 
-  if (!rule || rule.excludedCollections.length === 0) {
+  if (!activeRules || activeRules.length === 0) {
+    console.log(
+      "💡 No active rules found - keeping original discount collections",
+    );
     // Nessuna regola = mantieni le collezioni originali del discount
     return validCollections
       .map((col) => {
@@ -1001,55 +988,81 @@ async function applyRulesToCollections(
       .filter((id): id is string => id !== null);
   }
 
-  const selectedIds = new Set(
-    rule.excludedCollections.map(
-      (col: { collectionId: string }) => col.collectionId,
-    ),
+  console.log(`🎯 Applying ${activeRules.length} rules in priority order:`);
+  activeRules.forEach((rule, index) => {
+    console.log(
+      `  ${index + 1}. ${rule.name} (${rule.mode}) - ${rule.excludedCollections.length} collections`,
+    );
+  });
+
+  // Start with original collections of the discount
+  let currentCollections = [...validCollections];
+
+  // Apply each rule in priority order (0 = highest priority)
+  for (const rule of activeRules) {
+    if (rule.excludedCollections.length === 0) {
+      console.log(
+        `⏭️ Skipping rule "${rule.name}" - no collections configured`,
+      );
+      continue;
+    }
+
+    const ruleCollectionIds = new Set(
+      rule.excludedCollections.map(
+        (col: { collectionId: string }) => col.collectionId,
+      ),
+    );
+
+    const beforeCount = currentCollections.length;
+
+    if (rule.mode === "exclude") {
+      // EXCLUDE Mode: Remove collections that match this rule
+      currentCollections = currentCollections.filter(
+        (col) => !ruleCollectionIds.has(col.id),
+      );
+      const afterCount = currentCollections.length;
+      console.log(
+        `🚫 Rule "${rule.name}" (EXCLUDE): ${beforeCount} → ${afterCount} collections`,
+      );
+    } else {
+      // INCLUDE Mode: Keep only collections that match this rule + any previously included
+      const ruleMatches = currentCollections.filter((col) =>
+        ruleCollectionIds.has(col.id),
+      );
+
+      // For include mode, we add back collections but don't remove others
+      // This allows layered include rules to build up the collection set
+      const existingIds = new Set(currentCollections.map((c) => c.id));
+      const newIncludes = ruleMatches.filter((col) => !existingIds.has(col.id));
+
+      if (newIncludes.length > 0) {
+        currentCollections = [...currentCollections, ...newIncludes];
+      }
+
+      const afterCount = currentCollections.length;
+      console.log(
+        `➕ Rule "${rule.name}" (INCLUDE): ${beforeCount} → ${afterCount} collections (+${newIncludes.length} added back)`,
+      );
+    }
+  }
+
+  // Convert to numeric IDs
+  const entitledCollections = currentCollections
+    .map((col) => {
+      try {
+        return extractNumericId(col.id);
+      } catch (error) {
+        console.warn(`⚠️ Invalid collection ID after rules: ${col.id}`, error);
+        return null;
+      }
+    })
+    .filter((id): id is string => id !== null);
+
+  console.log(
+    `✅ All rules applied: Final result ${entitledCollections.length} collections from ${validCollections.length} original`,
   );
 
-  if (rule.mode === "exclude") {
-    // EXCLUDE Mode: Mantieni le collezioni attuali del discount tranne quelle escluse
-    const entitledCollections = validCollections
-      .filter((col) => !selectedIds.has(col.id))
-      .map((col) => {
-        try {
-          return extractNumericId(col.id);
-        } catch (error) {
-          console.warn(
-            `⚠️ Invalid collection ID in exclude mode: ${col.id}`,
-            error,
-          );
-          return null;
-        }
-      })
-      .filter((id): id is string => id !== null);
-
-    console.log(
-      `✅ Exclude mode: Keeping ${entitledCollections.length} of ${validCollections.length} original discount collections`,
-    );
-    return entitledCollections;
-  } else {
-    // INCLUDE Mode: Solo le collezioni originali del discount che sono anche nelle regole di inclusione
-    const entitledCollections = validCollections
-      .filter((col) => selectedIds.has(col.id))
-      .map((col) => {
-        try {
-          return extractNumericId(col.id);
-        } catch (error) {
-          console.warn(
-            `⚠️ Invalid collection ID in include mode: ${col.id}`,
-            error,
-          );
-          return null;
-        }
-      })
-      .filter((id): id is string => id !== null);
-
-    console.log(
-      `✅ Include mode: Keeping ${entitledCollections.length} of ${validCollections.length} original discount collections`,
-    );
-    return entitledCollections;
-  }
+  return entitledCollections;
 }
 
 /**
@@ -1129,18 +1142,71 @@ export async function getEntitledCollections(
 }
 
 /**
- * Applica le regole di esclusione a un price rule esistente
+ * Applica tutte le regole attive (o una specifica) a un price rule esistente (AGGIORNATO per regole multiple)
+ * @param specificRuleId If provided, applies only this rule instead of all active rules
  */
 export async function applyRuleToPriceRule(
   admin: AdminType,
   shop: string,
   priceRuleId: string,
+  specificRuleId?: string,
 ): Promise<{ success: boolean; message: string }> {
   try {
-    // 1. Verifica se esistono regole attive
-    const activeRule = await discountRuleHelpers.getActiveRule(shop);
+    // 1. Verifica se esistono regole attive (multiple rules support)
+    let activeRules = await discountRuleHelpers.getActiveRulesAtTime(shop);
 
-    if (!activeRule) {
+    // 1.5. Se specificato un ruleId, cercalo prima tra le regole attive al momento
+    if (specificRuleId) {
+      let specificRule = activeRules.find((rule) => rule.id === specificRuleId);
+
+      // Se non trovata tra quelle attive ora, cercala tra tutte le regole attive (potrebbe essere schedulata)
+      if (!specificRule) {
+        const allActiveRules = await discountRuleHelpers.getActiveRules(shop);
+        specificRule = allActiveRules.find(
+          (rule) => rule.id === specificRuleId,
+        );
+
+        if (!specificRule) {
+          return {
+            success: false,
+            message: `Rule with ID ${specificRuleId} not found or disabled.`,
+          };
+        }
+
+        // Se la regola esiste ma non è attiva al momento per scheduling, informa l'utente
+        if (!specificRule.active) {
+          return {
+            success: false,
+            message: `Rule "${specificRule.name}" is disabled and cannot be applied.`,
+          };
+        }
+
+        // Controlla se è una regola schedulata ma non attiva al momento
+        const now = new Date();
+        if (specificRule.isScheduled) {
+          const start = specificRule.scheduledStart;
+          const end = specificRule.scheduledEnd;
+
+          if (start && now < start) {
+            return {
+              success: false,
+              message: `Rule "${specificRule.name}" is scheduled to start at ${start.toLocaleString()} and is not active yet.`,
+            };
+          }
+
+          if (end && now > end) {
+            return {
+              success: false,
+              message: `Rule "${specificRule.name}" expired at ${end.toLocaleString()} and is no longer active.`,
+            };
+          }
+        }
+      }
+
+      activeRules = [specificRule];
+    }
+
+    if (!activeRules || activeRules.length === 0) {
       return {
         success: false,
         message: "No active discount rules found. Please create rules first.",
@@ -1179,6 +1245,10 @@ export async function applyRuleToPriceRule(
       "📋 Current collections:",
       currentCollections.map((c) => c.title),
     );
+    console.log(
+      `🎯 Will apply ${activeRules.length} rules in priority order:`,
+      activeRules.map((r, i) => `${i + 1}. ${r.name} (${r.mode})`),
+    );
 
     // 5. Applica le regole SOLO alle collezioni attuali del discount
     const entitledCollectionIds = await applyRulesToCollections(
@@ -1186,16 +1256,35 @@ export async function applyRuleToPriceRule(
       currentCollections,
     );
 
-    // Note: entitledCollectionIds.length === 0 is valid!
-    // It means "exclude all original collections" which translates to items: { all: false }
-
     const originalCount = currentCollections.length;
     const finalCount = entitledCollectionIds.length;
     const excludedCount = originalCount - finalCount;
 
     console.log(
-      `📊 Original collections: ${originalCount}, Final collections: ${finalCount}, Excluded: ${excludedCount}`,
+      `📊 Rules application summary: Original: ${originalCount} → Final: ${finalCount} collections (${excludedCount} excluded)`,
     );
+
+    // NUOVO: Previeni discount vuoti che sarebbero inutilizzabili
+    if (finalCount === 0 && originalCount > 0) {
+      console.log(
+        `⚠️ Skipping "${targetDiscount.title}" - rules would exclude ALL collections, making discount unusable`,
+      );
+      return {
+        success: false,
+        message: `Skipped "${targetDiscount.title}" - rules would exclude all collections, making the discount unusable. Consider adjusting your rules or manually excluding this specific discount.`,
+      };
+    }
+
+    // Se already had 0 collections, skip as well
+    if (originalCount === 0) {
+      console.log(
+        `⚠️ Skipping "${targetDiscount.title}" - discount already has no collections`,
+      );
+      return {
+        success: false,
+        message: `Skipped "${targetDiscount.title}" - discount has no collections to apply rules to.`,
+      };
+    }
 
     // 6. Applica le mutation GraphQL basate sul tipo di discount
     const mutationResult = await applyDiscountMutation(
@@ -1218,9 +1307,35 @@ export async function applyRuleToPriceRule(
     }
 
     // Return success message with detailed information
+    const appliedRulesCount = activeRules.length;
+    const excludeRules = activeRules.filter((r) => r.mode === "exclude").length;
+    const includeRules = activeRules.filter((r) => r.mode === "include").length;
+
+    let rulesSummary;
+    if (specificRuleId && activeRules.length === 1) {
+      // Single rule application
+      const appliedRule = activeRules[0];
+      rulesSummary = `"${appliedRule.name}" rule (${appliedRule.mode} mode)`;
+    } else {
+      // Multiple rules application
+      rulesSummary = `${appliedRulesCount} rule${appliedRulesCount !== 1 ? "s" : ""}`;
+      if (excludeRules > 0 && includeRules > 0) {
+        rulesSummary += ` (${excludeRules} exclude, ${includeRules} include)`;
+      } else if (excludeRules > 0) {
+        rulesSummary += ` (exclude mode)`;
+      } else if (includeRules > 0) {
+        rulesSummary += ` (include mode)`;
+      }
+    }
+
+    const changeDescription =
+      excludedCount > 0
+        ? `${excludedCount} collections removed`
+        : "collections maintained";
+
     return {
       success: true,
-      message: `Rules applied successfully! Discount now applies to ${finalCount} collections (was ${originalCount}). ${excludedCount} collections were excluded.`,
+      message: `✅ "${targetDiscount.title}": ${rulesSummary} applied successfully! Now has ${finalCount} collections (${changeDescription}).`,
     };
   } catch (error) {
     console.error("Error applying rule to price rule:", error);
@@ -1232,7 +1347,7 @@ export async function applyRuleToPriceRule(
 }
 
 /**
- * Applica le regole di esclusione a TUTTI i price rules dello shop
+ * Applica le regole a TUTTI i price rules dello shop (AGGIORNATO per gestire discount vuoti)
  */
 export async function applyRuleToAllPriceRules(
   admin: AdminType,
@@ -1240,8 +1355,14 @@ export async function applyRuleToAllPriceRules(
 ): Promise<{
   success: number;
   failed: number;
+  skipped: number;
   total: number;
-  details: Array<{ id: string; title: string; status: string }>;
+  details: Array<{
+    id: string;
+    title: string;
+    status: string;
+    message?: string;
+  }>;
 }> {
   try {
     // 1. Recupera tutti i discount
@@ -1251,45 +1372,74 @@ export async function applyRuleToAllPriceRules(
       return {
         success: 0,
         failed: 0,
+        skipped: 0,
         total: 0,
         details: [],
       };
     }
 
-    // 2. Per ogni discount, simula l'applicazione delle regole
+    // 2. Per ogni discount, applica le regole con gestione migliorata degli stati
     const results = [];
     let successCount = 0;
+    let skippedCount = 0;
+
+    console.log(
+      `🎯 Starting bulk rule application to ${discounts.length} discounts...`,
+    );
 
     for (const discount of discounts) {
       try {
-        // Simula l'applicazione della regola a questo discount specifico
+        // Applica le regole a questo discount specifico
         const result = await applyRuleToPriceRule(
           admin,
           shop,
           String(discount.id),
         );
 
+        // Determina stato basato su messaggio dettagliato
+        let status = "failed";
+        if (result.success) {
+          status = "applied";
+          successCount++;
+        } else if (
+          result.message.includes("Skipped") ||
+          result.message.includes("would exclude all collections")
+        ) {
+          status = "skipped";
+          skippedCount++;
+        } else {
+          status = "failed";
+        }
+
         results.push({
           id: String(discount.id),
           title: String(discount.title),
-          status: result.success ? "processed" : "failed",
+          status: status,
+          message: result.message.substring(0, 100), // Limit message length
         });
-
-        if (result.success) {
-          successCount++;
-        }
       } catch (error) {
         results.push({
           id: String(discount.id),
           title: String(discount.title),
           status: "error",
+          message:
+            error instanceof Error
+              ? error.message.substring(0, 100)
+              : "Unknown error",
         });
       }
     }
 
+    const failedCount = discounts.length - successCount - skippedCount;
+
+    console.log(
+      `✅ Bulk application complete: ${successCount} applied, ${skippedCount} skipped, ${failedCount} failed`,
+    );
+
     return {
       success: successCount,
-      failed: discounts.length - successCount,
+      failed: failedCount,
+      skipped: skippedCount,
       total: discounts.length,
       details: results,
     };
@@ -1303,6 +1453,7 @@ export async function applyRuleToAllPriceRules(
     return {
       success: 0,
       failed: 0,
+      skipped: 0,
       total: 0,
       details: [],
     };
@@ -1443,9 +1594,6 @@ export async function getDiscountCodes(admin: AdminType) {
         };
       };
     };
-
-    console.log("📊 GraphQL Response:", JSON.stringify(graphqlData, null, 2));
-
     // Trasforma i dati GraphQL nel formato atteso
     const modernDiscounts =
       graphqlData.data?.discountNodes?.edges?.map((edge) => {

@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { useNavigate } from "react-router";
 import {
   Card,
   Button,
@@ -63,6 +64,7 @@ export function RuleForm({
   maxPriority,
   planLimit,
 }: RuleFormProps): JSX.Element {
+  const navigate = useNavigate();
   const isEditing = Boolean(rule);
   // TODO: Temporarily disable plan limits during development
   const isAtLimit = false;
@@ -79,12 +81,24 @@ export function RuleForm({
     rule?.priority?.toString() || (maxPriority + 1).toString(),
   );
   const [active, setActive] = useState(rule?.active ?? true);
+
+  // Debug: Log the active state whenever it changes
+  console.log("🔄 RuleForm DEBUG: Active state:", {
+    ruleActive: rule?.active,
+    currentActiveState: active,
+    isEditing,
+    ruleName: rule?.name,
+  });
   const [isScheduled, setIsScheduled] = useState(rule?.isScheduled || false);
   const [scheduledStart, setScheduledStart] = useState(
-    rule?.scheduledStart ? rule.scheduledStart.split("T")[0] : "",
+    rule?.scheduledStart
+      ? rule.scheduledStart.substring(0, 16) // Format: YYYY-MM-DDTHH:MM for datetime-local
+      : "",
   );
   const [scheduledEnd, setScheduledEnd] = useState(
-    rule?.scheduledEnd ? rule.scheduledEnd.split("T")[0] : "",
+    rule?.scheduledEnd
+      ? rule.scheduledEnd.substring(0, 16) // Format: YYYY-MM-DDTHH:MM for datetime-local
+      : "",
   );
   const [selectedCollections, setSelectedCollections] = useState<Collection[]>(
     rule?.excludedCollections || [],
@@ -118,11 +132,11 @@ export function RuleForm({
       newErrors.name = "Rule name is required";
     }
 
-    if (!priority) {
+    if (!priority && planLimit?.planName !== "FREE") {
       newErrors.priority = "Priority is required";
     }
 
-    if (isScheduled) {
+    if (isScheduled && planLimit?.planName !== "FREE") {
       if (!scheduledStart) {
         newErrors.scheduledStart =
           "Start date is required when scheduling is enabled";
@@ -169,7 +183,7 @@ export function RuleForm({
     if (!validateForm()) return;
 
     const formData = new FormData();
-    formData.append("actionType", isEditing ? "updateRule" : "createRule");
+    formData.append("actionType", "saveRule");
 
     if (isEditing && rule) {
       formData.append("ruleId", rule.id);
@@ -178,11 +192,31 @@ export function RuleForm({
     formData.append("name", name.trim());
     formData.append("description", description.trim());
     formData.append("mode", currentMode);
-    formData.append("priority", priority);
-    formData.append("active", active.toString());
-    formData.append("isScheduled", isScheduled.toString());
 
-    if (isScheduled) {
+    // Priority management - automatic for FREE, manual for premium
+    const finalPriority =
+      planLimit?.planName === "FREE"
+        ? (maxPriority + 1).toString() // Auto-assign next priority for FREE users
+        : priority;
+    formData.append("priority", finalPriority);
+    formData.append("active", active.toString());
+
+    // Only add scheduling for non-FREE plans
+    const shouldUseScheduling = isScheduled && planLimit?.planName !== "FREE";
+    formData.append("isScheduled", shouldUseScheduling.toString());
+
+    // Debug: Log the exact values being sent
+    console.log("📤 RuleForm DEBUG: Sending form data:", {
+      name: name.trim(),
+      active,
+      activeString: active.toString(),
+      isScheduled: shouldUseScheduling,
+      scheduledStart,
+      scheduledEnd,
+      planName: planLimit?.planName,
+    });
+
+    if (shouldUseScheduling) {
       formData.append("scheduledStart", scheduledStart);
       formData.append("scheduledEnd", scheduledEnd);
     }
@@ -207,7 +241,9 @@ export function RuleForm({
           </Banner>
           <InlineStack gap="300" align="end">
             <Button onClick={onCancel}>Close</Button>
-            <Button variant="primary">Upgrade Plan</Button>
+            <Button variant="primary" onClick={() => navigate("/app/pricing")}>
+              View Pricing
+            </Button>
           </InlineStack>
         </BlockStack>
       </Card>
@@ -249,23 +285,62 @@ export function RuleForm({
           />
 
           <InlineStack gap="400" align="start">
-            <div style={{ flex: 1 }}>
-              <Select
-                label="Priority"
-                value={priority}
-                onChange={setPriority}
-                options={priorityOptions}
-                error={errors.priority}
-                helpText="Lower numbers = higher priority. Rules with priority 0 run first."
-              />
-            </div>
+            {/* Priority - Premium Feature */}
+            {planLimit?.planName !== "FREE" && (
+              <div style={{ flex: 1 }}>
+                <InlineStack gap="200" blockAlign="end">
+                  <div style={{ flex: 1 }}>
+                    <Select
+                      label="Priority"
+                      value={priority}
+                      onChange={setPriority}
+                      options={priorityOptions}
+                      error={errors.priority}
+                      helpText="Lower numbers = higher priority. Rules with priority 0 run first."
+                    />
+                  </div>
+                  <Badge tone="success" size="small">
+                    Premium
+                  </Badge>
+                </InlineStack>
+              </div>
+            )}
+
+            {/* FREE Plan - Automatic Priority */}
+            {planLimit?.planName === "FREE" && (
+              <div style={{ flex: 1 }}>
+                <BlockStack gap="200">
+                  <InlineStack gap="200" blockAlign="center">
+                    <Badge tone="attention">Premium Feature</Badge>
+                    <Text variant="headingSm" as="h4">
+                      🎯 Priority Management
+                    </Text>
+                  </InlineStack>
+                  <Text variant="bodyMd" as="p">
+                    Rules are automatically prioritized by creation order.
+                    Upgrade to Basic or Pro for manual priority control!
+                  </Text>
+                  <Text variant="bodySm" tone="subdued" as="p">
+                    ✨ With premium plans you can set custom priority order for
+                    your rules
+                  </Text>
+                </BlockStack>
+              </div>
+            )}
 
             <div style={{ paddingTop: "1.5rem" }}>
               <Checkbox
-                label="Rule is active"
+                label="Rule is enabled"
                 checked={active}
-                onChange={setActive}
-                helpText="Inactive rules are saved but not applied"
+                onChange={(newValue) => {
+                  console.log("🔄 RuleForm DEBUG: Checkbox onChange:", {
+                    oldActive: active,
+                    newActive: newValue,
+                    ruleName: rule?.name,
+                  });
+                  setActive(newValue);
+                }}
+                helpText="Disabled rules are saved but never applied. If scheduled, enabled rules are active only during their time window."
               />
             </div>
           </InlineStack>
@@ -396,46 +471,77 @@ export function RuleForm({
 
         <Divider />
 
-        {/* Scheduling */}
-        <BlockStack gap="400">
-          <Text variant="headingMd" as="h3">
-            Scheduling (Optional)
-          </Text>
+        {/* Scheduling - Premium Feature */}
+        {planLimit?.planName !== "FREE" && (
+          <>
+            <BlockStack gap="400">
+              <InlineStack gap="200" blockAlign="center">
+                <Text variant="headingMd" as="h3">
+                  Scheduling (Optional)
+                </Text>
+                <Badge tone="success">Premium</Badge>
+              </InlineStack>
 
-          <Checkbox
-            label="Enable scheduling"
-            checked={isScheduled}
-            onChange={setIsScheduled}
-            helpText="Schedule when this rule should be active"
-          />
+              <Checkbox
+                label="Enable scheduling"
+                checked={isScheduled}
+                onChange={setIsScheduled}
+                helpText="Schedule when this rule should be active"
+              />
 
-          {isScheduled && (
-            <InlineStack gap="400" align="start">
-              <div style={{ flex: 1 }}>
-                <TextField
-                  label="Start Date"
-                  type="date"
-                  value={scheduledStart}
-                  onChange={setScheduledStart}
-                  error={errors.scheduledStart}
-                  autoComplete="off"
-                />
-              </div>
-              <div style={{ flex: 1 }}>
-                <TextField
-                  label="End Date"
-                  type="date"
-                  value={scheduledEnd}
-                  onChange={setScheduledEnd}
-                  error={errors.scheduledEnd}
-                  autoComplete="off"
-                />
-              </div>
-            </InlineStack>
-          )}
-        </BlockStack>
+              {isScheduled && (
+                <InlineStack gap="400" align="start">
+                  <div style={{ flex: 1 }}>
+                    <TextField
+                      label="Start Date & Time"
+                      type="datetime-local"
+                      value={scheduledStart}
+                      onChange={setScheduledStart}
+                      error={errors.scheduledStart}
+                      autoComplete="off"
+                      helpText="When the rule should start being active"
+                    />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <TextField
+                      label="End Date & Time"
+                      type="datetime-local"
+                      value={scheduledEnd}
+                      onChange={setScheduledEnd}
+                      error={errors.scheduledEnd}
+                      autoComplete="off"
+                      helpText="When the rule should stop being active"
+                    />
+                  </div>
+                </InlineStack>
+              )}
+            </BlockStack>
+            <Divider />
+          </>
+        )}
 
-        <Divider />
+        {/* Upgrade prompt for FREE users */}
+        {planLimit?.planName === "FREE" && (
+          <>
+            <BlockStack gap="300">
+              <InlineStack gap="200" blockAlign="center">
+                <Badge tone="attention">Premium Feature</Badge>
+                <Text variant="headingSm" as="h3">
+                  🌟 Rule Scheduling
+                </Text>
+              </InlineStack>
+              <Text variant="bodyMd" as="p">
+                Want to schedule rules for specific time periods? Upgrade to
+                Basic or Pro plan!
+              </Text>
+              <Text variant="bodySm" tone="subdued" as="p">
+                ✨ With premium plans you can set rules to automatically
+                activate and deactivate during specific dates and times.
+              </Text>
+            </BlockStack>
+            <Divider />
+          </>
+        )}
 
         {/* Actions */}
         <InlineStack gap="300" align="end">
