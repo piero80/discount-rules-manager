@@ -128,11 +128,13 @@ export class SubscriptionService {
   }
 
   /**
-   * Change plan (upgrade or downgrade) - No billing integration
+   * Change plan (upgrade or downgrade) - For internal use only
+   * Use ShopifyBillingService for billing integration
    */
   static async changePlan(
     shop: string,
     newPlan: "FREE" | "BASIC" | "PRO",
+    shopifyChargeId?: string | null,
   ): Promise<void> {
     const config = PLAN_CONFIGS[newPlan];
     const currentPeriodStart = new Date();
@@ -150,7 +152,7 @@ export class SubscriptionService {
         maxRules: config.maxRules,
         currentPeriodStart: newPlan !== "FREE" ? currentPeriodStart : null,
         currentPeriodEnd: newPlan !== "FREE" ? currentPeriodEnd : null,
-        shopifyChargeId: null, // No billing integration
+        shopifyChargeId: shopifyChargeId,
         updatedAt: new Date(),
       },
       create: {
@@ -160,7 +162,7 @@ export class SubscriptionService {
         maxRules: config.maxRules,
         currentPeriodStart: newPlan !== "FREE" ? currentPeriodStart : null,
         currentPeriodEnd: newPlan !== "FREE" ? currentPeriodEnd : null,
-        shopifyChargeId: null, // No billing integration
+        shopifyChargeId: shopifyChargeId,
       },
     });
   }

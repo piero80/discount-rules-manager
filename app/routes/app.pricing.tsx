@@ -6,6 +6,7 @@ import {
   useSubmit,
   useNavigate,
   useNavigation,
+  redirect,
 } from "react-router";
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import {
@@ -56,66 +57,36 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const formData = await request.formData();
   const actionType = formData.get("actionType");
 
-  if (actionType === "changePlan") {
-    const newPlan = formData.get("planName") as "FREE" | "BASIC" | "PRO";
+  // Redirect all billing actions to the billing page
+  if (actionType === "changePlan" || actionType === "upgrade") {
+    const plan = formData.get("planName") as "FREE" | "BASIC" | "PRO";
 
-    try {
-      // Change plan without billing integration
-      await SubscriptionService.changePlan(session.shop, newPlan);
-
-      const actionMessage =
-        newPlan === "FREE"
-          ? "Successfully downgraded to FREE plan"
-          : `Successfully changed to ${newPlan} plan!`;
-
-      return data({
-        success: true,
-        message: actionMessage,
-      });
-    } catch (error) {
-      return data({
-        success: false,
-        message: "Failed to change plan",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+    // For paid plans, redirect to billing page to handle Shopify billing
+    if (plan && plan !== "FREE") {
+      return redirect(`/app/billing?upgrade=${plan}`);
     }
-  }
 
-  // Legacy upgrade action for backward compatibility
-  if (actionType === "upgrade") {
-    const newPlan = formData.get("planName") as "BASIC" | "PRO";
-
-    try {
-      await SubscriptionService.changePlan(session.shop, newPlan);
-      return data({
-        success: true,
-        message: `Successfully upgraded to ${newPlan} plan!`,
-      });
-    } catch (error) {
-      return data({
-        success: false,
-        message: "Failed to upgrade plan",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
+    // Allow downgrade to FREE plan directly (no billing required)
+    if (plan === "FREE") {
+      try {
+        await SubscriptionService.changePlan(session.shop, "FREE", null);
+        return data({
+          success: true,
+          message: "Successfully downgraded to FREE plan",
+        });
+      } catch (error) {
+        return data({
+          success: false,
+          message: "Failed to downgrade plan",
+          error: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
     }
   }
 
   if (actionType === "cancel") {
-    try {
-      // Use changePlan to downgrade to FREE instead of just canceling
-      await SubscriptionService.changePlan(session.shop, "FREE");
-
-      return data({
-        success: true,
-        message: "Successfully downgraded to FREE plan",
-      });
-    } catch (error) {
-      return data({
-        success: false,
-        message: "Failed to cancel subscription",
-        error: error instanceof Error ? error.message : "Unknown error",
-      });
-    }
+    // Redirect to billing page for subscription cancellation
+    return redirect("/app/billing");
   }
 
   return data({

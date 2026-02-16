@@ -8,19 +8,15 @@ import {
   List,
   Divider,
 } from "@shopify/polaris";
+import { Form } from "react-router";
 import { PLAN_CONFIGS } from "../services/subscription.server";
 
 interface PlanUpgradeProps {
   currentPlan: string;
-  onUpgrade: (plan: "BASIC" | "PRO") => void;
   onCancel: () => void;
 }
 
-export function PlanUpgrade({
-  currentPlan,
-  onUpgrade,
-  onCancel,
-}: PlanUpgradeProps) {
+export function PlanUpgrade({ currentPlan, onCancel }: PlanUpgradeProps) {
   return (
     <Card>
       <BlockStack gap="500">
@@ -53,12 +49,16 @@ export function PlanUpgrade({
                     ${PLAN_CONFIGS.BASIC.price}/month
                   </Text>
                 </div>
-                <Button
-                  variant={currentPlan === "FREE" ? "primary" : "secondary"}
-                  onClick={() => onUpgrade("BASIC")}
-                >
-                  Upgrade to Basic
-                </Button>
+                <Form method="post" action="/app/billing">
+                  <input type="hidden" name="action" value="upgrade" />
+                  <input type="hidden" name="plan" value="BASIC" />
+                  <Button
+                    submit
+                    variant={currentPlan === "FREE" ? "primary" : "secondary"}
+                  >
+                    Upgrade to Basic
+                  </Button>
+                </Form>
               </InlineStack>
 
               <List type="bullet">
@@ -81,9 +81,13 @@ export function PlanUpgrade({
                     ${PLAN_CONFIGS.PRO.price}/month
                   </Text>
                 </div>
-                <Button variant="secondary" onClick={() => onUpgrade("PRO")}>
-                  Upgrade to Pro
-                </Button>
+                <Form method="post" action="/app/billing">
+                  <input type="hidden" name="action" value="upgrade" />
+                  <input type="hidden" name="plan" value="PRO" />
+                  <Button submit variant="secondary">
+                    Upgrade to Pro
+                  </Button>
+                </Form>
               </InlineStack>
 
               <List type="bullet">

@@ -58,6 +58,12 @@ interface ActionData {
   success: boolean;
   message: string;
   ruleId?: string;
+  planLimits?: {
+    current: number;
+    max: number;
+    planName: string;
+  };
+  needsUpgrade?: boolean;
 }
 
 // GraphQL Types
@@ -399,7 +405,22 @@ async function handleRuleCreateOrUpdate(
         },
       );
     } else {
-      // Create new rule
+      // Create new rule - check plan limits first
+      // console.log("➕ DEBUG: Creating new rule - checking plan limits");
+
+      const canCreate = await SubscriptionService.canCreateRule(session.shop);
+      if (!canCreate) {
+        const planLimits = await SubscriptionService.getPlanLimits(
+          session.shop,
+        );
+        return data({
+          success: false,
+          message: `Plan limit reached! You can create up to ${planLimits.max} rules with your ${planLimits.planName} plan. Upgrade your plan to create more rules.`,
+          planLimits,
+          needsUpgrade: true,
+        });
+      }
+
       // console.log("➕ DEBUG: Creating new rule");
       result = await discountRuleHelpers.createRule(session.shop, ruleData);
       actionMessage = "Rule created successfully!";
@@ -522,7 +543,32 @@ export default function RuleDetailsPage(): JSX.Element {
       >
         <Layout>
           <Layout.Section>
-            {isAtLimit ? (
+            {/* Show upgrade needed banner if action failed due to plan limits */}
+            {actionData?.needsUpgrade && (
+              <Card>
+                <BlockStack gap="400">
+                  <Banner tone="critical">
+                    <p>
+                      <strong>Plan Limit Reached</strong>
+                      <br />
+                      {actionData.message}
+                    </p>
+                  </Banner>
+                  <InlineStack gap="300" align="end">
+                    <Button onClick={handleFormCancel}>Go Back</Button>
+                    <Button
+                      variant="primary"
+                      onClick={() => navigate("/app/billing")}
+                    >
+                      Upgrade Plan
+                    </Button>
+                  </InlineStack>
+                </BlockStack>
+              </Card>
+            )}
+
+            {/* Show limit warning for new rules */}
+            {isAtLimit && !actionData?.needsUpgrade ? (
               <Card>
                 <BlockStack gap="400">
                   <Banner tone="warning">
@@ -538,23 +584,25 @@ export default function RuleDetailsPage(): JSX.Element {
                     <Button onClick={handleFormCancel}>Go Back</Button>
                     <Button
                       variant="primary"
-                      onClick={() => navigate("/app/pricing")}
+                      onClick={() => navigate("/app/billing")}
                     >
-                      View Pricing
+                      Upgrade Plan
                     </Button>
                   </InlineStack>
                 </BlockStack>
               </Card>
             ) : (
-              <RuleForm
-                rule={rule}
-                collections={collections}
-                onSave={handleFormSave}
-                onCancel={handleFormCancel}
-                isLoading={isLoading}
-                maxPriority={maxPriority}
-                planLimit={planLimit}
-              />
+              !actionData?.needsUpgrade && (
+                <RuleForm
+                  rule={rule}
+                  collections={collections}
+                  onSave={handleFormSave}
+                  onCancel={handleFormCancel}
+                  isLoading={isLoading}
+                  maxPriority={maxPriority}
+                  planLimit={planLimit}
+                />
+              )
             )}
           </Layout.Section>
 
