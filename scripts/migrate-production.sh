@@ -13,10 +13,10 @@ npx prisma generate
 # Step 2: Baseline existing migrations (if they exist)
 echo "🔄 Baseining existing migrations..."
 echo "   - Marking 20251224184301_init as applied (if needed)..."
-npx prisma migrate resolve --applied 20251224184301_init --skip-seed || echo "   ✓ Already resolved or not needed"
+npx prisma migrate resolve --applied 20251224184301_init || echo "   ✓ Already resolved or not needed"
 
 echo "   - Marking 20251225171524_fix_userid_type as applied (if needed)..."
-npx prisma migrate resolve --applied 20251225171524_fix_userid_type --skip-seed || echo "   ✓ Already resolved or not needed"
+npx prisma migrate resolve --applied 20251225171524_fix_userid_type || echo "   ✓ Already resolved or not needed"
 
 # Step 3: Check migration status
 echo "📋 Checking migration status..."

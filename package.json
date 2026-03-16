@@ -17,7 +17,7 @@
     "setup:dev": "prisma generate && prisma db push", 
     "setup:production": "prisma generate && prisma migrate deploy",
     "setup:production:safe": "prisma generate && npm run baseline:production && prisma migrate deploy",
-    "baseline:production": "npx prisma migrate resolve --applied 20251224184301_init --skip-seed || true && npx prisma migrate resolve --applied 20251225171524_fix_userid_type --skip-seed || true",
+    "baseline:production": "(npx prisma migrate resolve --applied 20251224184301_init || echo \"Skip init\") && (npx prisma migrate resolve --applied 20251225171524_fix_userid_type || echo \"Skip userid_type\")",
     "db:reset": "prisma migrate reset --force",
     "db:seed": "prisma db seed",
     "lint": "eslint --ignore-path .gitignore --cache --cache-location ./node_modules/.cache/eslint .",
