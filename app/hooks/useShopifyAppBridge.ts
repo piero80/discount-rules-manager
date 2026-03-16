@@ -45,9 +45,34 @@ export function useShopifyAppBridge() {
     [app],
   );
 
+  const openExternalUrl = useCallback(
+    (url: string) => {
+      if (!app) {
+        console.log("No app bridge, opening in current window");
+        window.open(url, "_top");
+        return;
+      }
+
+      try {
+        // For embedded apps, we need to navigate the parent window
+        console.log("Using App Bridge to open external URL:", url);
+        if (window.top) {
+          window.top.location.href = url;
+        } else {
+          window.open(url, "_top");
+        }
+      } catch (error) {
+        console.error("Navigation error:", error);
+        window.location.href = url;
+      }
+    },
+    [app],
+  );
+
   return {
     app,
     showResourcePicker,
     showToast,
+    openExternalUrl,
   };
 }

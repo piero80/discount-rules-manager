@@ -55,6 +55,27 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     }
   }
 
+  if (testType === "testScheduling") {
+    try {
+      const { testScheduledRules } = await import(
+        "../services/test-scenarios.server"
+      );
+      const result = await testScheduledRules();
+
+      return data({
+        success: result.success,
+        message: result.message,
+        results: [result], // Keep same format as other tests
+      });
+    } catch (error) {
+      return data({
+        success: false,
+        message: "Scheduling test execution failed",
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
   if (testType === "runMutationTests") {
     try {
       const { runAllMutationTests } = await import(
@@ -86,6 +107,38 @@ export default function TestPage() {
   const navigate = useNavigate();
   const [testResults, setTestResults] = useState<TestResult[]>([]);
   const [isRunning, setIsRunning] = useState(false);
+
+  const runSchedulingTest = async () => {
+    setIsRunning(true);
+    setTestResults([]);
+
+    const formData = new FormData();
+    formData.append("testType", "testScheduling");
+
+    // Use fetch to call our action
+    try {
+      const response = await fetch("/app/test", {
+        method: "POST",
+        body: formData,
+      });
+      const result = await response.json();
+
+      if (result.results) {
+        setTestResults(result.results);
+      }
+    } catch (error) {
+      console.error("Scheduling test failed:", error);
+      setTestResults([
+        {
+          success: false,
+          message: "Failed to run scheduling test",
+          error: String(error),
+        },
+      ]);
+    }
+
+    setIsRunning(false);
+  };
 
   const runTests = () => {
     setIsRunning(true);
@@ -243,6 +296,13 @@ export default function TestPage() {
                     loading={isRunning}
                   >
                     Run GraphQL Tests
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={runSchedulingTest}
+                    loading={isRunning}
+                  >
+                    🕐 Test Scheduling
                   </Button>
                 </InlineStack>
               </InlineStack>
