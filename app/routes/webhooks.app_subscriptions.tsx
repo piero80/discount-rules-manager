@@ -21,10 +21,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           console.log(`📧 Subscription ${charge.status} for shop ${shop}`);
 
           // Downgrade to free plan
-          await SubscriptionService.changePlan(shop, "FREE", null);
+          await SubscriptionService.changePlan(shop, "free", null);
 
           console.log(
-            `✅ Shop ${shop} downgraded to FREE plan due to ${charge.status}`,
+            `✅ Shop ${shop} downgraded to free plan due to ${charge.status}`,
           );
         }
         break;

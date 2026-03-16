@@ -115,7 +115,7 @@ export function MultipleRulesList({
           Discount Rules ({rules.length})
         </Text>
         <Text variant="bodyMd" as="p" tone="subdued">
-          {planLimit?.planName === "FREE"
+          {planLimit?.planName === "free"
             ? "Rules can be manually enabled/disabled. Upgrade to Basic for priority management and scheduling features."
             : "Rules can be manually enabled/disabled and are automatically activated based on their schedule. A rule is active only if enabled AND within its scheduled time window."}
         </Text>
@@ -164,7 +164,7 @@ export function MultipleRulesList({
                               : "Include Only"}
                           </Badge>
 
-                          {planLimit?.planName !== "FREE" && (
+                          {planLimit?.planName !== "free" && (
                             <Badge
                               size="small"
                               tone={currentlyActive ? "success" : "info"}
@@ -174,7 +174,7 @@ export function MultipleRulesList({
                           )}
 
                           {rule.isScheduled &&
-                            planLimit?.planName !== "FREE" && (
+                            planLimit?.planName !== "free" && (
                               <Tooltip content={formatSchedule(rule)}>
                                 <Badge
                                   size="small"
@@ -284,7 +284,7 @@ export function MultipleRulesList({
                           </div>
                         </div>
 
-                        {rule.isScheduled && planLimit?.planName !== "FREE" && (
+                        {rule.isScheduled && planLimit?.planName !== "free" && (
                           <div>
                             <Text
                               variant="bodyMd"
@@ -308,8 +308,8 @@ export function MultipleRulesList({
         />
       )}
 
-      {/* Upgrade prompt for FREE users */}
-      {planLimit?.planName === "FREE" && rules.length > 0 && (
+      {/* Upgrade prompt for free users */}
+      {planLimit?.planName === "free" && rules.length > 0 && (
         <div
           style={{
             padding: "1rem",

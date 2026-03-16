@@ -350,7 +350,7 @@ export default function DiscountsPage() {
             </Button>
 
             {/* Premium Feature: Apply Specific Rules (BASIC+ plans) */}
-            {planLimit.planName !== "FREE" && activeRules.length > 0 && (
+            {planLimit.planName !== "free" && activeRules.length > 0 && (
               <Popover
                 active={openPopovers[discount.id] || false}
                 activator={
@@ -375,7 +375,7 @@ export default function DiscountsPage() {
                 <div style={{ minWidth: "280px", padding: "4px" }}>
                   <ActionList
                     items={
-                      activeRules.length > 0
+                      (activeRules.length > 0
                         ? activeRules.map((rule) => {
                             const isCurrentlyActive =
                               isRuleCurrentlyActive(rule);
@@ -399,7 +399,7 @@ export default function DiscountsPage() {
                                       >
                                         {rule.name}
                                         {!isCurrentlyActive &&
-                                          planLimit.planName !== "FREE" &&
+                                          planLimit.planName !== "free" &&
                                           " (Scheduled)"}
                                       </Text>
                                       <InlineStack gap="100">
@@ -414,7 +414,7 @@ export default function DiscountsPage() {
                                           {rule.mode.toUpperCase()}
                                         </Badge>
                                         {!isCurrentlyActive &&
-                                          planLimit.planName !== "FREE" && (
+                                          planLimit.planName !== "free" && (
                                             <Badge tone="warning" size="small">
                                               SCHEDULED
                                             </Badge>
@@ -444,7 +444,7 @@ export default function DiscountsPage() {
                                         </Text>
                                       )}
                                     {!isCurrentlyActive &&
-                                      planLimit.planName !== "FREE" && (
+                                      planLimit.planName !== "free" && (
                                         <Text
                                           as="span"
                                           variant="bodySm"
@@ -477,7 +477,8 @@ export default function DiscountsPage() {
                               ),
                               disabled: true,
                             },
-                          ]
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                          ]) as any
                     }
                   />
                 </div>
@@ -621,7 +622,7 @@ export default function DiscountsPage() {
                 💡 How Multiple Rules Work
               </Text>
               <BlockStack gap="200">
-                {planLimit.planName !== "FREE" && (
+                {planLimit.planName !== "free" && (
                   <Text variant="bodyMd" as="p">
                     • <strong>Priority Order:</strong> Rules are applied in
                     order (#1 has highest priority)
@@ -642,13 +643,13 @@ export default function DiscountsPage() {
                   • <strong>Apply Rules:</strong> Click on individual discounts
                   or use &quot;Apply to All&quot; to update all at once
                 </Text>
-                {planLimit.planName !== "FREE" && (
+                {planLimit.planName !== "free" && (
                   <Text variant="bodyMd" as="p">
                     • <strong>Scheduling:</strong> Some rules may only be active
                     during specific time periods
                   </Text>
                 )}
-                {planLimit.planName !== "FREE" && (
+                {planLimit.planName !== "free" && (
                   <Text variant="bodyMd" as="p">
                     • <strong>🌟 Premium:</strong> Use &quot;Specific Rule&quot;
                     to apply individual rules for granular control
@@ -659,7 +660,7 @@ export default function DiscountsPage() {
           </Card>
         </Layout.Section>
 
-        {planLimit.planName === "FREE" && activeRules.length > 0 && (
+        {planLimit.planName === "free" && activeRules.length > 0 && (
           <Layout.Section>
             <Card>
               <BlockStack gap="300">

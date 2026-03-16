@@ -1,6 +1,30 @@
 import { authenticate } from "../shopify.server";
 import prisma from "./db.server";
-import { PLAN_CONFIGS } from "./subscription.server";
+import { PLAN_CONFIGS, type PlanName } from "../config/plans";
+
+/**
+ * Get the correct app URL for billing callbacks
+ * In development, use the request origin (cloudflare tunnel)
+ * In production, use the configured URL
+ */
+function getAppUrl(request: Request): string {
+  // First try the environment variable (production)
+  if (process.env.SHOPIFY_APP_URL) {
+    return process.env.SHOPIFY_APP_URL;
+  }
+
+  // In development, extract from request origin
+  const url = new URL(request.url);
+  const origin = url.origin;
+
+  // If it's a cloudflare tunnel or localhost, use it
+  if (origin.includes("trycloudflare.com") || origin.includes("localhost")) {
+    return origin;
+  }
+
+  // Fallback to production URL
+  return "https://discount-rules-manager-production.up.railway.app";
+}
 
 export interface BillingResult {
   success: boolean;
@@ -77,7 +101,7 @@ export class ShopifyBillingService {
    */
   static async createRecurringCharge(
     request: Request,
-    planName: "BASIC" | "PRO",
+    planName: Exclude<PlanName, "free">,
   ): Promise<BillingResult> {
     try {
       console.log(`🔄 Starting billing process for plan: ${planName}`);
@@ -88,10 +112,8 @@ export class ShopifyBillingService {
       const planConfig = PLAN_CONFIGS[planName];
       console.log(`📋 Plan config:`, planConfig);
 
-      // Check if app URL is configured
-      const appUrl =
-        process.env.SHOPIFY_APP_URL ||
-        "https://discount-rules-manager-production.up.railway.app";
+      // Get the correct app URL - use request origin in development
+      const appUrl = getAppUrl(request);
 
       console.log(`🔄 Creating recurring charge for plan: ${planName}`);
       console.log(`📍 Using app URL: ${appUrl}`);
@@ -193,7 +215,7 @@ export class ShopifyBillingService {
   static async activateCharge(
     request: Request,
     chargeId: string,
-    planName: "BASIC" | "PRO",
+    planName: Exclude<PlanName, "free">,
   ): Promise<BillingResult> {
     try {
       const { admin, session } = await authenticate.admin(request);
@@ -339,13 +361,13 @@ export class ShopifyBillingService {
         // Continue with database update even if Shopify cancellation fails
       }
 
-      // Update subscription to FREE plan
+      // Update subscription to free plan
       await prisma.subscription.update({
         where: { shop: session.shop },
         data: {
-          planName: "FREE",
+          planName: "free",
           status: "ACTIVE",
-          maxRules: PLAN_CONFIGS.FREE.maxRules,
+          maxRules: PLAN_CONFIGS.free.maxRules,
           shopifyChargeId: null,
           currentPeriodStart: null,
           currentPeriodEnd: null,
@@ -353,7 +375,7 @@ export class ShopifyBillingService {
         },
       });
 
-      console.log(`✅ Subscription cancelled and user downgraded to FREE plan`);
+      console.log(`✅ Subscription cancelled and user downgraded to free plan`);
 
       return { success: true };
     } catch (error) {

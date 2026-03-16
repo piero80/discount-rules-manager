@@ -25,10 +25,8 @@ import {
 } from "@shopify/polaris";
 import { CheckIcon, StarFilledIcon } from "@shopify/polaris-icons";
 import { authenticate } from "../shopify.server";
-import {
-  SubscriptionService,
-  PLAN_CONFIGS,
-} from "../services/subscription.server";
+import { SubscriptionService } from "../services/subscription.server";
+import { PLAN_CONFIGS, type PlanName } from "../config/plans";
 
 interface ActionData {
   success: boolean;
@@ -43,9 +41,18 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const subscription = await SubscriptionService.getSubscription(session.shop);
   const isInTrial = await SubscriptionService.isInTrial(session.shop);
 
+  // Safety check for subscription data
+  const safeSubscription = {
+    planName: subscription?.planName || "free",
+    status: subscription?.status || "ACTIVE",
+    maxRules: subscription?.maxRules || PLAN_CONFIGS.free.maxRules,
+    trialEndsAt: subscription?.trialEndsAt,
+    currentPeriodEnd: subscription?.currentPeriodEnd,
+  };
+
   return data({
     currentPlan: {
-      ...subscription,
+      ...safeSubscription,
       isInTrial,
     },
     planConfig: PLAN_CONFIGS,
@@ -59,20 +66,20 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   // Redirect all billing actions to the billing page
   if (actionType === "changePlan" || actionType === "upgrade") {
-    const plan = formData.get("planName") as "FREE" | "BASIC" | "PRO";
+    const plan = formData.get("planName") as PlanName;
 
     // For paid plans, redirect to billing page to handle Shopify billing
-    if (plan && plan !== "FREE") {
+    if (plan && plan !== "free") {
       return redirect(`/app/billing?upgrade=${plan}`);
     }
 
-    // Allow downgrade to FREE plan directly (no billing required)
-    if (plan === "FREE") {
+    // Allow downgrade to free plan directly (no billing required)
+    if (plan === "free") {
       try {
-        await SubscriptionService.changePlan(session.shop, "FREE", null);
+        await SubscriptionService.changePlan(session.shop, "free", null);
         return data({
           success: true,
-          message: "Successfully downgraded to FREE plan",
+          message: "Successfully downgraded to free plan",
         });
       } catch (error) {
         return data({
@@ -112,11 +119,12 @@ export default function PricingPage() {
     }
   }, [actionData]);
 
-  const handlePlanChange = (planName: "FREE" | "BASIC" | "PRO") => {
+  const handlePlanChange = (planName: PlanName) => {
     const current = currentPlan.planName;
     const isDowngrade =
-      (current === "PRO" && planName !== "PRO") ||
-      (current === "BASIC" && planName === "FREE");
+      (current === "enterprise" && planName !== "enterprise") ||
+      (current === "professional" && ["starter", "free"].includes(planName)) ||
+      (current === "starter" && planName === "free");
 
     const confirmMessage = isDowngrade
       ? `Are you sure you want to downgrade to ${planName}? Some features will be disabled.`
@@ -133,11 +141,17 @@ export default function PricingPage() {
   };
 
   const renderPlanCard = (
-    planKey: keyof typeof PLAN_CONFIGS,
+    planKey: PlanName,
     isRecommended: boolean = false,
   ) => {
     const plan = planConfig[planKey];
     const isCurrent = currentPlan.planName === planKey;
+
+    // Safety check to prevent undefined errors
+    if (!plan) {
+      console.error(`Plan configuration not found for key: ${planKey}`);
+      return null;
+    }
 
     return (
       <Card key={planKey}>
@@ -165,11 +179,7 @@ export default function PricingPage() {
               </Text>
             </InlineStack>
 
-            {currentPlan.isInTrial && planKey === "FREE" && (
-              <Text variant="bodyMd" tone="critical" as="p">
-                🎉 You&apos;re currently on a 7-day trial!
-              </Text>
-            )}
+            {/* Free plan never has trial - no message needed */}
           </BlockStack>
 
           <Divider />
@@ -203,15 +213,25 @@ export default function PricingPage() {
               <Button
                 variant={
                   // Upgrade buttons are primary, downgrades are secondary
-                  (planKey === "BASIC" && currentPlan.planName === "FREE") ||
-                  (planKey === "PRO" && currentPlan.planName !== "PRO")
+                  (planKey === "starter" && currentPlan.planName === "free") ||
+                  (planKey === "professional" &&
+                    !["professional", "enterprise"].includes(
+                      currentPlan.planName,
+                    )) ||
+                  (planKey === "enterprise" &&
+                    currentPlan.planName !== "enterprise")
                     ? "primary"
                     : "secondary"
                 }
                 tone={
                   // Downgrade buttons have critical tone
-                  (planKey === "FREE" && currentPlan.planName !== "FREE") ||
-                  (planKey === "BASIC" && currentPlan.planName === "PRO")
+                  (planKey === "free" && currentPlan.planName !== "free") ||
+                  (planKey === "starter" &&
+                    ["professional", "enterprise"].includes(
+                      currentPlan.planName,
+                    )) ||
+                  (planKey === "professional" &&
+                    currentPlan.planName === "enterprise")
                     ? "critical"
                     : undefined
                 }
@@ -221,26 +241,40 @@ export default function PricingPage() {
                 size="large"
               >
                 {/* Dynamic button text based on current vs target plan */}
-                {planKey === "FREE" && currentPlan.planName !== "FREE"
+                {planKey === "free" && currentPlan.planName !== "free"
                   ? "Downgrade to Free"
-                  : planKey === "BASIC" && currentPlan.planName === "PRO"
-                    ? "Downgrade to Basic"
-                    : planKey === "BASIC" && currentPlan.planName === "FREE"
-                      ? "Upgrade to Basic"
-                      : planKey === "PRO" && currentPlan.planName !== "PRO"
-                        ? "Upgrade to Pro"
-                        : `Choose ${plan.name}`}
+                  : planKey === "starter" &&
+                      ["professional", "enterprise"].includes(
+                        currentPlan.planName,
+                      )
+                    ? "Downgrade to Starter"
+                    : planKey === "professional" &&
+                        currentPlan.planName === "enterprise"
+                      ? "Downgrade to Professional"
+                      : planKey === "starter" && currentPlan.planName === "free"
+                        ? "Upgrade to Starter"
+                        : planKey === "professional" &&
+                            !["professional", "enterprise"].includes(
+                              currentPlan?.planName,
+                            )
+                          ? "Upgrade to Professional"
+                          : planKey === "enterprise" &&
+                              currentPlan.planName !== "enterprise"
+                            ? "Upgrade to Enterprise"
+                            : `Choose ${plan?.name}`}
               </Button>
             )}
 
-            {planKey !== "FREE" && (
+            {planKey !== "free" && (
               <Text
                 variant="bodyMd"
                 tone="subdued"
                 alignment="center"
                 as="span"
               >
-                ✨ 7-day free trial • Cancel anytime
+                {PLAN_CONFIGS[planKey].trial
+                  ? "✨ 7-day free trial • Cancel anytime"
+                  : ""}
               </Text>
             )}
           </BlockStack>
@@ -285,7 +319,7 @@ export default function PricingPage() {
                 support.
               </Text>
 
-              {currentPlan.isInTrial && (
+              {currentPlan.isInTrial && currentPlan.planName !== "free" && (
                 <Card>
                   <InlineStack gap="200" align="center">
                     <Icon source={StarFilledIcon} tone="success" />
@@ -304,13 +338,14 @@ export default function PricingPage() {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+                gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
                 gap: "1.5rem",
               }}
             >
-              {renderPlanCard("FREE")}
-              {renderPlanCard("BASIC", true)}
-              {renderPlanCard("PRO")}
+              {renderPlanCard("free")}
+              {renderPlanCard("starter")}
+              {renderPlanCard("professional", true)}
+              {renderPlanCard("enterprise")}
             </div>
           </Layout.Section>
 
@@ -338,8 +373,8 @@ export default function PricingPage() {
                       Do you offer refunds?
                     </Text>
                     <Text variant="bodyMd" tone="subdued" as="span">
-                      We offer a 7-day free trial for all plans. You can cancel
-                      anytime during the trial with no charges.
+                      We offer a 7-day free trial for all paid plans. You can
+                      cancel anytime during the trial with no charges.
                     </Text>
                   </BlockStack>
 

@@ -28,13 +28,13 @@ model Session {
   emailVerified Boolean?  @default(false)
 }
 
-// Subscription management for Basic Plan
+// Subscription management - Optimized for App Store
 model Subscription {
   id                 String    @id @default(cuid())
   shop               String    @unique
-  planName           String    @default("FREE") // "FREE", "BASIC", "PRO"
+  planName           String    @default("FREE") // "FREE", "STARTER", "PROFESSIONAL", "ENTERPRISE"
   status             String    @default("ACTIVE") // "ACTIVE", "CANCELED", "TRIAL"
-  maxRules           Int       @default(2)
+  maxRules           Int       @default(1) // Updated default for FREE plan
   currentPeriodStart DateTime?
   currentPeriodEnd   DateTime?
   trialEndsAt        DateTime?

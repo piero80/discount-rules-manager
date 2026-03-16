@@ -1,11 +1,6 @@
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
-import {
-  data,
-  redirect,
-  useLoaderData,
-  useActionData,
-  Form,
-} from "react-router";
+import { useEffect } from "react";
+import { data, useLoaderData, useActionData, Form } from "react-router";
 import {
   Card,
   Text,
@@ -16,11 +11,14 @@ import {
 } from "@shopify/polaris";
 import { ShopifyBillingService } from "../services/shopify-billing.server";
 import { SubscriptionService } from "../services/subscription.server";
+import { PLAN_CONFIGS, type PlanName } from "../config/plans";
 import { authenticate } from "../shopify.server";
+import { useShopifyAppBridge } from "../hooks/useShopifyAppBridge";
 
 interface ActionData {
   success?: string;
   error?: string;
+  confirmationUrl?: string;
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -45,7 +43,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
   const formData = await request.formData();
   const action = formData.get("action") as string;
-  const plan = formData.get("plan") as "BASIC" | "PRO";
+  const plan = formData.get("plan") as Exclude<PlanName, "free">;
 
   try {
     switch (action) {
@@ -59,10 +57,17 @@ export async function action({ request }: ActionFunctionArgs) {
           plan,
         );
 
+        console.log("🔍 Billing result:", result);
+
         if (result.success && result.confirmationUrl) {
-          // Redirect user to Shopify billing confirmation
-          return redirect(result.confirmationUrl);
+          console.log("✅ Redirecting to:", result.confirmationUrl);
+          // Return confirmation URL to frontend instead of server redirect
+          return data({
+            confirmationUrl: result.confirmationUrl,
+            success: "Billing plan created successfully",
+          });
         } else {
+          console.error("❌ Billing failed:", result.error);
           return data({
             error: result.error || "Failed to create billing plan",
           });
@@ -92,6 +97,23 @@ export default function BillingPage() {
   const { subscription, billingInfo, suggestedUpgrade } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<ActionData>();
+  const { openExternalUrl } = useShopifyAppBridge(); // Use the external URL method
+
+  // Handle redirect to Shopify billing confirmation using App Bridge
+  useEffect(() => {
+    console.log("🔍 Action data received:", actionData);
+    if (actionData?.confirmationUrl) {
+      console.log(
+        "🔄 Navigating to billing confirmation:",
+        actionData.confirmationUrl,
+      );
+
+      // Use the dedicated external URL opener
+      openExternalUrl(actionData.confirmationUrl);
+    } else {
+      console.log("❌ No confirmationUrl in actionData");
+    }
+  }, [actionData, openExternalUrl]);
 
   return (
     <BlockStack gap="500">
@@ -153,7 +175,7 @@ export default function BillingPage() {
       </Card>
 
       {/* Upgrade Options */}
-      {subscription.planName === "FREE" && (
+      {subscription.planName === "free" && (
         <Card>
           <BlockStack gap="400">
             <Text variant="headingMd" as="h2">
@@ -169,25 +191,45 @@ export default function BillingPage() {
             <InlineStack gap="400">
               <Form method="post">
                 <input type="hidden" name="action" value="upgrade" />
-                <input type="hidden" name="plan" value="BASIC" />
+                <input type="hidden" name="plan" value="starter" />
                 <Button
                   submit
                   variant={
-                    suggestedUpgrade === "BASIC" ? "primary" : "secondary"
+                    suggestedUpgrade === "starter" ? "primary" : "secondary"
                   }
                 >
-                  Upgrade to Basic ($7.99/month)
+                  Upgrade to Starter ($${PLAN_CONFIGS.starter.price.toString()}
+                  /month)
                 </Button>
               </Form>
 
               <Form method="post">
                 <input type="hidden" name="action" value="upgrade" />
-                <input type="hidden" name="plan" value="PRO" />
+                <input type="hidden" name="plan" value="professional" />
                 <Button
                   submit
-                  variant={suggestedUpgrade === "PRO" ? "primary" : "secondary"}
+                  variant={
+                    suggestedUpgrade === "professional"
+                      ? "primary"
+                      : "secondary"
+                  }
                 >
-                  Upgrade to Pro ($19.99/month)
+                  Upgrade to Professional ($$
+                  {PLAN_CONFIGS.professional.price.toString()}/month)
+                </Button>
+              </Form>
+
+              <Form method="post">
+                <input type="hidden" name="action" value="upgrade" />
+                <input type="hidden" name="plan" value="enterprise" />
+                <Button
+                  submit
+                  variant={
+                    suggestedUpgrade === "enterprise" ? "primary" : "secondary"
+                  }
+                >
+                  Upgrade to Enterprise ($$
+                  {PLAN_CONFIGS.enterprise.price.toString()}/month)
                 </Button>
               </Form>
             </InlineStack>
@@ -195,8 +237,82 @@ export default function BillingPage() {
         </Card>
       )}
 
+      {/* Change Plan Options - For paid plans */}
+      {subscription.planName !== "free" && (
+        <Card>
+          <BlockStack gap="400">
+            <Text variant="headingMd" as="h2">
+              Change Your Plan
+            </Text>
+
+            <Text variant="bodyMd" tone="subdued" as="p">
+              Switch to a different plan based on your needs.
+            </Text>
+
+            <InlineStack gap="400" wrap>
+              {/* Starter Plan */}
+              {subscription.planName !== "starter" && (
+                <Form method="post">
+                  <input type="hidden" name="action" value="upgrade" />
+                  <input type="hidden" name="plan" value="starter" />
+                  <Button submit variant="secondary" size="large">
+                    {subscription.planName === "free" ? "Upgrade" : "Change"} to
+                    Starter ($${PLAN_CONFIGS.starter.price.toString()}/month)
+                  </Button>
+                </Form>
+              )}
+
+              {/* Professional Plan */}
+              {subscription.planName !== "professional" && (
+                <Form method="post">
+                  <input type="hidden" name="action" value="upgrade" />
+                  <input type="hidden" name="plan" value="professional" />
+                  <Button
+                    submit
+                    variant={
+                      subscription.planName === "starter"
+                        ? "primary"
+                        : "secondary"
+                    }
+                    size="large"
+                  >
+                    {["free", "starter"].includes(subscription.planName)
+                      ? "Upgrade"
+                      : "Downgrade"}{" "}
+                    to Professional ($$
+                    {PLAN_CONFIGS.professional.price.toString()}/month)
+                  </Button>
+                </Form>
+              )}
+
+              {/* Enterprise Plan */}
+              {subscription.planName !== "enterprise" && (
+                <Form method="post">
+                  <input type="hidden" name="action" value="upgrade" />
+                  <input type="hidden" name="plan" value="enterprise" />
+                  <Button
+                    submit
+                    variant={
+                      ["free", "starter", "professional"].includes(
+                        subscription.planName,
+                      )
+                        ? "primary"
+                        : "secondary"
+                    }
+                    size="large"
+                  >
+                    Upgrade to Enterprise ($$
+                    {PLAN_CONFIGS.enterprise.price.toString()}/month)
+                  </Button>
+                </Form>
+              )}
+            </InlineStack>
+          </BlockStack>
+        </Card>
+      )}
+
       {/* Cancel Subscription */}
-      {subscription.planName !== "FREE" && (
+      {subscription.planName !== "free" && (
         <Card>
           <BlockStack gap="400">
             <Text variant="headingMd" as="h2">

@@ -7,6 +7,7 @@ embedded = true
 
 [build]
 automatically_update_urls_on_dev = true
+dev_store_url = ""
 
 [webhooks]
 api_version = "2025-10"

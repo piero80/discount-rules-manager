@@ -39,7 +39,7 @@ export function RulesHeader({ ruleStats, planLimit }: RulesHeaderProps) {
           </Text>
           <InlineStack gap="200" blockAlign="center">
             <Text variant="bodyMd" tone="subdued" as="span">
-              {planLimit?.planName === "FREE"
+              {planLimit?.planName === "Free"
                 ? "Manage your discount rules settings"
                 : "Manage multiple rules with priority and scheduling"}
             </Text>
@@ -78,7 +78,8 @@ export function RulesHeader({ ruleStats, planLimit }: RulesHeaderProps) {
 
           {isAtLimit && planLimit && (
             <Text variant="bodyMd" tone="critical" alignment="center" as="p">
-              Upgrade to {planLimit.planName === "Free" ? "Basic" : "Pro"} for
+              Upgrade to{" "}
+              {planLimit.planName === "Free" ? "Starter" : "Professional"} for
               more rules
             </Text>
           )}

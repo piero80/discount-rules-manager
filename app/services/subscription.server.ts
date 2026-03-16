@@ -1,4 +1,5 @@
 import prisma from "./db.server";
+import { PLAN_CONFIGS, type PlanName } from "../config/plans";
 
 export interface PlanLimits {
   current: number;
@@ -13,42 +14,6 @@ export interface SubscriptionInfo {
   trialEndsAt?: Date;
   currentPeriodEnd?: Date;
 }
-
-// Plan configurations
-export const PLAN_CONFIGS = {
-  FREE: {
-    name: "Free",
-    maxRules: 2,
-    price: 0,
-    features: ["Basic rule management", "Collection include/exclude"],
-  },
-  BASIC: {
-    name: "Basic",
-    maxRules: 10,
-    price: 7.99,
-    features: [
-      "Multiple rules (up to 10)",
-      "Priority management",
-      "Rule scheduling",
-      "Apply specific rules",
-      "Basic analytics dashboard",
-    ],
-  },
-  PRO: {
-    name: "Pro",
-    maxRules: 50,
-    price: 19.99,
-    features: [
-      "Unlimited rules",
-      "Priority management",
-      "Advanced automation",
-      "Rule scheduling",
-      "Apply specific rules",
-      "Bulk operations",
-      "Premium support",
-    ],
-  },
-} as const;
 
 export class SubscriptionService {
   /**
@@ -65,11 +30,11 @@ export class SubscriptionService {
         subscription = await prisma.subscription.create({
           data: {
             shop,
-            planName: "FREE",
+            planName: "free",
             status: "ACTIVE",
-            maxRules: PLAN_CONFIGS.FREE.maxRules,
-            // 7-day trial for all new users
-            trialEndsAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            maxRules: PLAN_CONFIGS.free.maxRules,
+            // No trial for free plan - it's free forever
+            trialEndsAt: null,
           },
         });
       }
@@ -85,9 +50,9 @@ export class SubscriptionService {
       console.error("❌ Error in getSubscription:", error);
       // Return default subscription on error
       return {
-        planName: "FREE",
+        planName: "free",
         status: "ACTIVE",
-        maxRules: 2,
+        maxRules: PLAN_CONFIGS.free.maxRules,
       };
     }
   }
@@ -114,7 +79,7 @@ export class SubscriptionService {
       return {
         current: 0,
         max: 2,
-        planName: "FREE",
+        planName: "free",
       };
     }
   }
@@ -133,14 +98,14 @@ export class SubscriptionService {
    */
   static async changePlan(
     shop: string,
-    newPlan: "FREE" | "BASIC" | "PRO",
+    newPlan: PlanName,
     shopifyChargeId?: string | null,
   ): Promise<void> {
     const config = PLAN_CONFIGS[newPlan];
     const currentPeriodStart = new Date();
     const currentPeriodEnd = new Date();
     // Only set period for paid plans
-    if (newPlan !== "FREE") {
+    if (newPlan !== "free") {
       currentPeriodEnd.setMonth(currentPeriodEnd.getMonth() + 1);
     }
 
@@ -150,8 +115,8 @@ export class SubscriptionService {
         planName: newPlan,
         status: "ACTIVE",
         maxRules: config.maxRules,
-        currentPeriodStart: newPlan !== "FREE" ? currentPeriodStart : null,
-        currentPeriodEnd: newPlan !== "FREE" ? currentPeriodEnd : null,
+        currentPeriodStart: newPlan !== "free" ? currentPeriodStart : null,
+        currentPeriodEnd: newPlan !== "free" ? currentPeriodEnd : null,
         shopifyChargeId: shopifyChargeId,
         updatedAt: new Date(),
       },
@@ -160,8 +125,8 @@ export class SubscriptionService {
         planName: newPlan,
         status: "ACTIVE",
         maxRules: config.maxRules,
-        currentPeriodStart: newPlan !== "FREE" ? currentPeriodStart : null,
-        currentPeriodEnd: newPlan !== "FREE" ? currentPeriodEnd : null,
+        currentPeriodStart: newPlan !== "free" ? currentPeriodStart : null,
+        currentPeriodEnd: newPlan !== "free" ? currentPeriodEnd : null,
         shopifyChargeId: shopifyChargeId,
       },
     });
@@ -173,7 +138,7 @@ export class SubscriptionService {
    */
   static async upgradeSubscription(
     shop: string,
-    newPlan: "BASIC" | "PRO",
+    newPlan: Exclude<PlanName, "free">,
   ): Promise<void> {
     await this.changePlan(shop, newPlan);
   }

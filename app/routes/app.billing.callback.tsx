@@ -2,13 +2,14 @@ import type { LoaderFunctionArgs } from "react-router";
 import { redirect } from "react-router";
 import { ShopifyBillingService } from "../services/shopify-billing.server";
 import { authenticate } from "../shopify.server";
+import { type PlanName } from "../config/plans";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await authenticate.admin(request);
 
   const url = new URL(request.url);
   const chargeId = url.searchParams.get("charge_id");
-  const plan = url.searchParams.get("plan") as "BASIC" | "PRO";
+  const plan = url.searchParams.get("plan") as Exclude<PlanName, "free">;
 
   if (!chargeId || !plan) {
     console.error("❌ Missing charge_id or plan in billing callback");

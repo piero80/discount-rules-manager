@@ -9,7 +9,7 @@ import {
   Divider,
 } from "@shopify/polaris";
 import { Form } from "react-router";
-import { PLAN_CONFIGS } from "../services/subscription.server";
+import { PLAN_CONFIGS } from "../config/plans";
 
 interface PlanUpgradeProps {
   currentPlan: string;
@@ -33,7 +33,7 @@ export function PlanUpgrade({ currentPlan, onCancel }: PlanUpgradeProps) {
           {/* Basic Plan */}
           <Card
             background={
-              currentPlan === "FREE" ? "bg-surface-selected" : "bg-surface"
+              currentPlan === "free" ? "bg-surface-selected" : "bg-surface"
             }
           >
             <BlockStack gap="400">
@@ -41,57 +41,60 @@ export function PlanUpgrade({ currentPlan, onCancel }: PlanUpgradeProps) {
                 <div>
                   <InlineStack gap="200" blockAlign="center">
                     <Text variant="headingMd" as="h3">
-                      {PLAN_CONFIGS.BASIC.name} Plan
+                      {PLAN_CONFIGS.starter.name} Plan
                     </Text>
-                    <Badge tone="success">Recommended</Badge>
+                    <Badge tone="success">Entry Level</Badge>
                   </InlineStack>
                   <Text variant="bodyLg" fontWeight="semibold" as="p">
-                    ${PLAN_CONFIGS.BASIC.price}/month
+                    ${PLAN_CONFIGS.starter.price}/month
                   </Text>
                 </div>
                 <Form method="post" action="/app/billing">
                   <input type="hidden" name="action" value="upgrade" />
-                  <input type="hidden" name="plan" value="BASIC" />
+                  <input type="hidden" name="plan" value="starter" />
                   <Button
                     submit
-                    variant={currentPlan === "FREE" ? "primary" : "secondary"}
+                    variant={currentPlan === "free" ? "primary" : "secondary"}
                   >
-                    Upgrade to Basic
+                    Upgrade to Starter
                   </Button>
                 </Form>
               </InlineStack>
 
               <List type="bullet">
-                {PLAN_CONFIGS.BASIC.features.map((feature, index) => (
+                {PLAN_CONFIGS.starter.features.map((feature, index) => (
                   <List.Item key={index}>{feature}</List.Item>
                 ))}
               </List>
             </BlockStack>
           </Card>
 
-          {/* Pro Plan */}
+          {/* Professional Plan */}
           <Card>
             <BlockStack gap="400">
               <InlineStack align="space-between" blockAlign="start">
                 <div>
-                  <Text variant="headingMd" as="h3">
-                    {PLAN_CONFIGS.PRO.name} Plan
-                  </Text>
+                  <InlineStack gap="200" blockAlign="center">
+                    <Text variant="headingMd" as="h3">
+                      {PLAN_CONFIGS.professional.name} Plan
+                    </Text>
+                    <Badge tone="info">Most Popular</Badge>
+                  </InlineStack>
                   <Text variant="bodyLg" fontWeight="semibold" as="p">
-                    ${PLAN_CONFIGS.PRO.price}/month
+                    ${PLAN_CONFIGS.professional.price}/month
                   </Text>
                 </div>
                 <Form method="post" action="/app/billing">
                   <input type="hidden" name="action" value="upgrade" />
-                  <input type="hidden" name="plan" value="PRO" />
+                  <input type="hidden" name="plan" value="professional" />
                   <Button submit variant="secondary">
-                    Upgrade to Pro
+                    Upgrade to Professional
                   </Button>
                 </Form>
               </InlineStack>
 
               <List type="bullet">
-                {PLAN_CONFIGS.PRO.features.map((feature, index) => (
+                {PLAN_CONFIGS.professional.features.map((feature, index) => (
                   <List.Item key={index}>{feature}</List.Item>
                 ))}
               </List>
@@ -106,7 +109,7 @@ export function PlanUpgrade({ currentPlan, onCancel }: PlanUpgradeProps) {
         </InlineStack>
 
         <Text variant="bodyMd" tone="subdued" as="p">
-          All plans include a 7-day free trial. You can cancel anytime.
+          All paid plans include a 7-day free trial. You can cancel anytime.
         </Text>
       </BlockStack>
     </Card>

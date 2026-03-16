@@ -132,11 +132,11 @@ export function RuleForm({
       newErrors.name = "Rule name is required";
     }
 
-    if (!priority && planLimit?.planName !== "FREE") {
+    if (!priority && planLimit?.planName !== "free") {
       newErrors.priority = "Priority is required";
     }
 
-    if (isScheduled && planLimit?.planName !== "FREE") {
+    if (isScheduled && planLimit?.planName !== "free") {
       if (!scheduledStart) {
         newErrors.scheduledStart =
           "Start date is required when scheduling is enabled";
@@ -193,16 +193,16 @@ export function RuleForm({
     formData.append("description", description.trim());
     formData.append("mode", currentMode);
 
-    // Priority management - automatic for FREE, manual for premium
+    // Priority management - automatic for free, manual for premium
     const finalPriority =
-      planLimit?.planName === "FREE"
-        ? (maxPriority + 1).toString() // Auto-assign next priority for FREE users
+      planLimit?.planName === "free"
+        ? (maxPriority + 1).toString() // Auto-assign next priority for free users
         : priority;
     formData.append("priority", finalPriority);
     formData.append("active", active.toString());
 
-    // Only add scheduling for non-FREE plans
-    const shouldUseScheduling = isScheduled && planLimit?.planName !== "FREE";
+    // Only add scheduling for non-free plans
+    const shouldUseScheduling = isScheduled && planLimit?.planName !== "free";
     formData.append("isScheduled", shouldUseScheduling.toString());
 
     // Debug: Log the exact values being sent
@@ -286,7 +286,7 @@ export function RuleForm({
 
           <InlineStack gap="400" align="start">
             {/* Priority - Premium Feature */}
-            {planLimit?.planName !== "FREE" && (
+            {planLimit?.planName !== "free" && (
               <div style={{ flex: 1 }}>
                 <InlineStack gap="200" blockAlign="end">
                   <div style={{ flex: 1 }}>
@@ -307,7 +307,7 @@ export function RuleForm({
             )}
 
             {/* FREE Plan - Automatic Priority */}
-            {planLimit?.planName === "FREE" && (
+            {planLimit?.planName === "free" && (
               <div style={{ flex: 1 }}>
                 <BlockStack gap="200">
                   <InlineStack gap="200" blockAlign="center">
@@ -472,7 +472,7 @@ export function RuleForm({
         <Divider />
 
         {/* Scheduling - Premium Feature */}
-        {planLimit?.planName !== "FREE" && (
+        {planLimit?.planName !== "free" && (
           <>
             <BlockStack gap="400">
               <InlineStack gap="200" blockAlign="center">
@@ -520,8 +520,8 @@ export function RuleForm({
           </>
         )}
 
-        {/* Upgrade prompt for FREE users */}
-        {planLimit?.planName === "FREE" && (
+        {/* Upgrade prompt for free users */}
+        {planLimit?.planName === "free" && (
           <>
             <BlockStack gap="300">
               <InlineStack gap="200" blockAlign="center">
