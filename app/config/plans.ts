@@ -4,13 +4,12 @@
 export const PLAN_CONFIGS = {
   free: {
     name: "Free",
-    maxRules: 3, // Enough to test multiple rules without being too generous
+    maxRules: 1, // Enough to test multiple rules without being too generous
     price: 0,
     features: [
-      "Up to 3 discount rules",
-      "Basic rule management", 
+      "Up to 1 discount rule",
+      "Basic rule management",
       "Collection include/exclude",
-      "Priority management",
     ],
     trial: false, // FREE plan non ha bisogno di trial
   },
