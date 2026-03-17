@@ -17,7 +17,7 @@ import {
   DeleteIcon,
   ClockIcon,
   DragHandleIcon,
-  ViewIcon,
+  EditIcon,
 } from "@shopify/polaris-icons";
 
 // Types
@@ -215,13 +215,13 @@ export function MultipleRulesList({
                       <Button
                         size="micro"
                         variant="tertiary"
-                        icon={ViewIcon}
+                        icon={EditIcon}
                         onClick={() => {
                           navigate(`/app/rules/${rule.id}`);
                         }}
-                        accessibilityLabel="View rule details"
+                        accessibilityLabel="Edit rule"
                       >
-                        View
+                        Edit
                       </Button>
                       <Button
                         size="micro"

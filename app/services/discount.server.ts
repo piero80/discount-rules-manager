@@ -957,15 +957,19 @@ export async function getAllCollections(admin: AdminType) {
  */
 async function applyRulesToCollections(
   shop: string,
-  collections: Array<{ id: string; title: string }>,
+  currentDiscountCollections: Array<{ id: string; title: string }>,
+  allShopCollections: Array<{ id: string; title: string }>,
 ): Promise<string[]> {
   // Filter out invalid collections
-  const validCollections = collections.filter(
+  const validCurrentCollections = currentDiscountCollections.filter(
+    (col) => col.id && col.id.trim() !== "" && col.title !== undefined,
+  );
+  const validAllCollections = allShopCollections.filter(
     (col) => col.id && col.id.trim() !== "" && col.title !== undefined,
   );
 
   console.log(
-    `🎯 Applying multiple rules to ${validCollections.length} existing discount collections (not all shop collections)`,
+    `🎯 Applying multiple rules to ${validCurrentCollections.length} existing discount collections (with access to ${validAllCollections.length} total shop collections)`,
   );
 
   // Get ALL active rules ordered by priority (NEW!)
@@ -976,7 +980,7 @@ async function applyRulesToCollections(
       "💡 No active rules found - keeping original discount collections",
     );
     // Nessuna regola = mantieni le collezioni originali del discount
-    return validCollections
+    return validCurrentCollections
       .map((col) => {
         try {
           return extractNumericId(col.id);
@@ -996,7 +1000,7 @@ async function applyRulesToCollections(
   });
 
   // Start with original collections of the discount
-  let currentCollections = [...validCollections];
+  let currentCollections = [...validCurrentCollections];
 
   // Apply each rule in priority order (0 = highest priority)
   for (const rule of activeRules) {
@@ -1021,27 +1025,30 @@ async function applyRulesToCollections(
         (col) => !ruleCollectionIds.has(col.id),
       );
       const afterCount = currentCollections.length;
+      const removedCount = beforeCount - afterCount;
       console.log(
-        `🚫 Rule "${rule.name}" (EXCLUDE): ${beforeCount} → ${afterCount} collections`,
+        `🚫 Rule "${rule.name}" (EXCLUDE): Removed ${removedCount} collections (${beforeCount} → ${afterCount})`,
       );
     } else {
-      // INCLUDE Mode: Keep only collections that match this rule + any previously included
-      const ruleMatches = currentCollections.filter((col) =>
+      // INCLUDE Mode: Add collections that match this rule (from all shop collections)
+      const collectionsToAdd = validAllCollections.filter((col) =>
         ruleCollectionIds.has(col.id),
       );
 
-      // For include mode, we add back collections but don't remove others
-      // This allows layered include rules to build up the collection set
+      // Only add collections that are not already present
       const existingIds = new Set(currentCollections.map((c) => c.id));
-      const newIncludes = ruleMatches.filter((col) => !existingIds.has(col.id));
+      const newCollections = collectionsToAdd.filter(
+        (col) => !existingIds.has(col.id),
+      );
 
-      if (newIncludes.length > 0) {
-        currentCollections = [...currentCollections, ...newIncludes];
+      if (newCollections.length > 0) {
+        currentCollections = [...currentCollections, ...newCollections];
       }
 
       const afterCount = currentCollections.length;
+      const addedCount = newCollections.length;
       console.log(
-        `➕ Rule "${rule.name}" (INCLUDE): ${beforeCount} → ${afterCount} collections (+${newIncludes.length} added back)`,
+        `➕ Rule "${rule.name}" (INCLUDE): Added ${addedCount} new collections (${beforeCount} → ${afterCount})`,
       );
     }
   }
@@ -1059,7 +1066,7 @@ async function applyRulesToCollections(
     .filter((id): id is string => id !== null);
 
   console.log(
-    `✅ All rules applied: Final result ${entitledCollections.length} collections from ${validCollections.length} original`,
+    `✅ All rules applied: Final result ${entitledCollections.length} collections from ${validCurrentCollections.length} original`,
   );
 
   return entitledCollections;
@@ -1250,10 +1257,11 @@ export async function applyRuleToPriceRule(
       activeRules.map((r, i) => `${i + 1}. ${r.name} (${r.mode})`),
     );
 
-    // 5. Applica le regole SOLO alle collezioni attuali del discount
+    // 5. Applica le regole alle collezioni attuali del discount (con accesso a tutte le collezioni)
     const entitledCollectionIds = await applyRulesToCollections(
       shop,
       currentCollections,
+      allCollections,
     );
 
     const originalCount = currentCollections.length;
