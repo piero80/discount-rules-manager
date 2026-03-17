@@ -18,11 +18,9 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   try {
-    const { topic, shop } = await authenticate.webhook(request);
+    const { topic, shop, payload } = await authenticate.webhook(request);
 
     console.log(`🔒 GDPR Webhook received: ${topic} for shop ${shop}`);
-
-    const payload = await request.json();
 
     switch (topic) {
       case "CUSTOMERS_DATA_REQUEST":
@@ -43,17 +41,19 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     return new Response("OK", { status: 200 });
   } catch (error: unknown) {
-    console.error("❌ Unexpected error in GDPR webhook:");
+    console.error("❌ Error processing GDPR webhook:");
     console.error(error);
 
-    // Per qualsiasi errore imprevisto, ritorna comunque 401
-    // (Shopify richiede 401 per problemi di autenticazione)
-    return new Response("Unauthorized", {
-      status: 401,
-      headers: {
-        "Content-Type": "text/plain",
-      },
-    });
+    // Se è un errore di autenticazione, ritorna 401
+    if (error && typeof error === 'object' && 'message' in error) {
+      const errorMessage = (error as Error).message.toLowerCase();
+      if (errorMessage.includes('unauthorized') || errorMessage.includes('invalid signature') || errorMessage.includes('hmac')) {
+        return new Response("Unauthorized - Invalid signature", { status: 401 });
+      }
+    }
+
+    // Per altri errori, ritorna 500 per far ritentare Shopify
+    return new Response("Internal server error", { status: 500 });
   }
 };
 
@@ -66,12 +66,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
  * Per la nostra app: NON memorizziamo dati customer diretti, solo regole discount.
  * Quindi rispondiamo che non abbiamo dati customer specifici.
  */
-async function handleCustomersDataRequest(payload: unknown, shop: string) {
+async function handleCustomersDataRequest(payload: any, shop: string) {
   console.log("📋 Customer data request received");
   console.log("Shop:", shop);
-  const data = payload as { customer?: { email?: string; id?: string } };
-  console.log("Customer email:", data.customer?.email);
-  console.log("Customer ID:", data.customer?.id);
+  console.log("Customer email:", payload.customer?.email);
+  console.log("Customer ID:", payload.customer?.id);
 
   // La nostra app NON memorizza dati customer personali
   // Memorizziamo solo:
@@ -86,7 +85,7 @@ async function handleCustomersDataRequest(payload: unknown, shop: string) {
   );
 
   // Log della richiesta per audit trail
-  await logGDPRRequest(shop, "data_request", data.customer?.id ?? null);
+  await logGDPRRequest(shop, "data_request", payload.customer?.id ?? null);
 
   // Nota: Se avessi dati customer, li invieresti così:
   // await sendCustomerDataToMerchant(shop, payload.customer, customerData);
@@ -100,12 +99,11 @@ async function handleCustomersDataRequest(payload: unknown, shop: string) {
  *
  * Per la nostra app: Non memorizziamo dati customer, quindi niente da cancellare.
  */
-async function handleCustomersRedact(payload: unknown, shop: string) {
+async function handleCustomersRedact(payload: any, shop: string) {
   console.log("🗑️ Customer redact request received");
   console.log("Shop:", shop);
-  const data = payload as { customer?: { email?: string; id?: string } };
-  console.log("Customer email:", data.customer?.email);
-  console.log("Customer ID:", data.customer?.id);
+  console.log("Customer email:", payload.customer?.email);
+  console.log("Customer ID:", payload.customer?.id);
 
   // La nostra app NON memorizza dati customer
   // Se li memorizzassimo (es: user preferences, logs), li cancelleremmo qui:
@@ -123,7 +121,7 @@ async function handleCustomersRedact(payload: unknown, shop: string) {
   );
 
   // Log della richiesta per audit trail
-  await logGDPRRequest(shop, "customer_redact", data.customer?.id ?? null);
+  await logGDPRRequest(shop, "customer_redact", payload.customer?.id ?? null);
 }
 
 /**
@@ -134,11 +132,10 @@ async function handleCustomersRedact(payload: unknown, shop: string) {
  *
  * Questo è IMPORTANTE: cancelliamo tutte le regole discount dello shop.
  */
-async function handleShopRedact(payload: unknown, shop: string) {
+async function handleShopRedact(payload: any, shop: string) {
   console.log("🏪 Shop redact request received");
-  const data = payload as { shop_domain?: string; shop_id?: string };
-  console.log("Shop domain:", data.shop_domain);
-  console.log("Shop ID:", data.shop_id);
+  console.log("Shop domain:", payload.shop_domain);
+  console.log("Shop ID:", payload.shop_id);
 
   try {
     // 1. Cancella tutte le discount rules dello shop
