@@ -45,10 +45,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     console.error(error);
 
     // Se è un errore di autenticazione, ritorna 401
-    if (error && typeof error === 'object' && 'message' in error) {
+    if (error && typeof error === "object" && "message" in error) {
       const errorMessage = (error as Error).message.toLowerCase();
-      if (errorMessage.includes('unauthorized') || errorMessage.includes('invalid signature') || errorMessage.includes('hmac')) {
-        return new Response("Unauthorized - Invalid signature", { status: 401 });
+      if (
+        errorMessage.includes("unauthorized") ||
+        errorMessage.includes("invalid signature") ||
+        errorMessage.includes("hmac")
+      ) {
+        return new Response("Unauthorized - Invalid signature", {
+          status: 401,
+        });
       }
     }
 

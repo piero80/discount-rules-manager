@@ -65,6 +65,7 @@ model DiscountRule {
 
   // Relations
   excludedCollections ExcludedCollection[]
+  excludedProducts    ExcludedProduct[]
 
   // Multiple rules allowed per shop (removed unique constraint)
   @@index([shop, active])
@@ -86,6 +87,24 @@ model ExcludedCollection {
   createdAt DateTime @default(now())
 
   @@unique([ruleId, collectionId])
+  @@index([ruleId])
+}
+
+// Products esclusi dalle regole
+model ExcludedProduct {
+  id        String  @id @default(cuid())
+  productId String // Shopify product GID
+  title     String
+  handle    String? // product handle for easier identification
+  imageUrl  String? // product image URL for UI display
+
+  // Relation to rule
+  ruleId String
+  rule   DiscountRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([ruleId, productId])
   @@index([ruleId])
 }
 

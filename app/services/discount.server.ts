@@ -38,12 +38,13 @@ function createCollectionGid(numericId: string): string {
 }
 
 /**
- * Applica le mutation GraphQL per aggiornare un discount con le collezioni
+ * Applica le mutation GraphQL per aggiornare un discount con le collezioni e prodotti
  */
 async function applyDiscountMutation(
   admin: AdminType,
   discount: { id: string; title: string; type: string; gid?: string },
   entitledCollectionIds: string[],
+  entitledProductIds: string[] = [],
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   allCollections: Array<{ id: string; title: string }>,
 ): Promise<{ success: boolean; error?: string }> {
@@ -62,6 +63,7 @@ async function applyDiscountMutation(
           admin,
           discountGid,
           collectionGids,
+          entitledProductIds.map((id) => `gid://shopify/Product/${id}`),
         );
 
       case "DiscountAutomaticBasic":
@@ -69,6 +71,7 @@ async function applyDiscountMutation(
           admin,
           discountGid,
           collectionGids,
+          entitledProductIds.map((id) => `gid://shopify/Product/${id}`),
         );
 
       case "DiscountCodeBxgy":
@@ -253,6 +256,134 @@ async function getCurrentDiscountCollections(
     return collections.map((col: { id: string }) => col.id);
   } catch (error) {
     // Error getting current discount collections
+    return [];
+  }
+}
+
+/**
+ * Recupera i prodotti attualmente applicati a un discount
+ */
+async function getCurrentDiscountProducts(
+  admin: AdminType,
+  discountId: string,
+): Promise<string[]> {
+  try {
+    // Convert DiscountCodeNode/DiscountAutomaticNode to DiscountNode for queries
+    let queryDiscountId = discountId;
+    if (discountId.includes("DiscountCodeNode")) {
+      queryDiscountId = discountId.replace("DiscountCodeNode", "DiscountNode");
+    } else if (discountId.includes("DiscountAutomaticNode")) {
+      queryDiscountId = discountId.replace(
+        "DiscountAutomaticNode",
+        "DiscountNode",
+      );
+    }
+
+    const query = `#graphql
+      query getDiscount($id: ID!) {
+        discountNode(id: $id) {
+          id
+          discount {
+            __typename
+            ... on DiscountCodeBasic {
+              title
+              customerGets {
+                __typename
+                items {
+                  __typename
+                  ... on DiscountCollections {
+                    collections(first: 250) {
+                      nodes {
+                        id
+                        title
+                      }
+                    }
+                  }
+                  ... on DiscountProducts {
+                    products(first: 250) {
+                      nodes {
+                        id
+                        title
+                        handle
+                        featuredImage {
+                          url(transform: { maxWidth: 100, maxHeight: 100 })
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            ... on DiscountAutomaticBasic {
+              title
+              customerGets {
+                __typename
+                items {
+                  __typename
+                  ... on DiscountCollections {
+                    collections(first: 250) {
+                      nodes {
+                        id
+                        title
+                      }
+                    }
+                  }
+                  ... on DiscountProducts {
+                    products(first: 250) {
+                      nodes {
+                        id
+                        title
+                        handle
+                        featuredImage {
+                          url(transform: { maxWidth: 100, maxHeight: 100 })
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }`;
+
+    const response = await admin.graphql(query, {
+      variables: { id: queryDiscountId },
+    });
+    const result = await response.json();
+
+    if (result.errors) {
+      return [];
+    }
+
+    const discountNode = result.data?.discountNode;
+    if (!discountNode) {
+      return [];
+    }
+
+    const customerGets = discountNode.discount?.customerGets;
+    if (!customerGets) {
+      return [];
+    }
+
+    // Handle different customerGets structures
+    let products: Array<{ id: string; title?: string }> = [];
+
+    if (Array.isArray(customerGets.items)) {
+      // Multiple items in array
+      for (const item of customerGets.items) {
+        if (item.__typename === "DiscountProducts" && item.products?.nodes) {
+          products.push(...item.products.nodes);
+        }
+      }
+    } else if (customerGets.items?.products?.nodes) {
+      // Single products item
+      products = customerGets.items.products.nodes;
+    }
+
+    return products.map((prod: { id: string }) => prod.id);
+  } catch (error) {
+    // Error getting current discount products
     return [];
   }
 }
@@ -703,6 +834,164 @@ async function replaceDiscountCollections(
 }
 
 /**
+ * Aggiorna un discount con le collezioni e prodotti specificati
+ * Gestisce sia collezioni che prodotti together nell'items field
+ */
+async function replaceDiscountTargets(
+  admin: AdminType,
+  discountId: string,
+  collectionGids: string[],
+  productGids: string[],
+  discountType: string,
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const fullConfig = await getFullDiscountConfig(admin, discountId);
+
+    if (!fullConfig) {
+      return {
+        success: false,
+        error: "Could not retrieve full discount configuration",
+      };
+    }
+
+    const mutation =
+      discountType === "DiscountCodeBasic"
+        ? `#graphql
+        mutation discountCodeBasicUpdate($id: ID!, $basicCodeDiscount: DiscountCodeBasicInput!) {
+          discountCodeBasicUpdate(id: $id, basicCodeDiscount: $basicCodeDiscount) {
+            userErrors {
+              field
+              message
+            }
+          }
+        }`
+        : `#graphql
+        mutation discountAutomaticBasicUpdate($id: ID!, $automaticBasicDiscount: DiscountAutomaticBasicInput!) {
+          discountAutomaticBasicUpdate(id: $id, automaticBasicDiscount: $automaticBasicDiscount) {
+            userErrors {
+              field
+              message
+            }
+          }
+        }`;
+
+    const variableKey =
+      discountType === "DiscountCodeBasic"
+        ? "basicCodeDiscount"
+        : "automaticBasicDiscount";
+
+    // Build complete customerGets structure from existing config
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fullConfigAny = fullConfig as any;
+
+    // Convert value structure for mutation
+    let mutationValue: Record<string, unknown>;
+    if (fullConfigAny.customerGets.value.percentage !== undefined) {
+      mutationValue = {
+        percentage: fullConfigAny.customerGets.value.percentage,
+      };
+    } else if (fullConfigAny.customerGets.value.amount) {
+      mutationValue = {
+        discountAmount: {
+          amount: fullConfigAny.customerGets.value.amount.amount,
+          appliesOnEachItem: false,
+        },
+      };
+    } else {
+      mutationValue = {
+        percentage: 10,
+      };
+    }
+
+    // Build items structure with both collections and products
+    let items: Record<string, unknown>;
+
+    if (collectionGids.length === 0 && productGids.length === 0) {
+      // No specific targets, apply to all
+      items = { all: true };
+    } else {
+      // Specific targets
+      items = { all: false };
+
+      if (collectionGids.length > 0) {
+        items.collections = { add: collectionGids };
+      }
+
+      if (productGids.length > 0) {
+        items.products = { add: productGids };
+      }
+    }
+
+    const customerGets = {
+      value: mutationValue,
+      items: items,
+    };
+
+    // Step 1: Clear existing targets first
+    const clearVariables = {
+      id: discountId,
+      [variableKey]: {
+        customerGets: {
+          value: mutationValue,
+          items: { all: true },
+        },
+      },
+    };
+
+    const clearResponse = await admin.graphql(mutation, {
+      variables: clearVariables,
+    });
+    const clearResult = await clearResponse.json();
+
+    if (clearResult.errors) {
+      console.log("⚠️ WARNING: Clear targets failed, continuing...");
+    }
+
+    // Step 2: Add new targets if any
+    if (collectionGids.length > 0 || productGids.length > 0) {
+      const variables = {
+        id: discountId,
+        [variableKey]: { customerGets },
+      };
+
+      const response = await admin.graphql(mutation, { variables });
+      const result = await response.json();
+
+      if (result.errors) {
+        return {
+          success: false,
+          error: result.errors
+            .map((err: { message: string }) => err.message)
+            .join(", "),
+        };
+      }
+
+      const mutationKey =
+        discountType === "DiscountCodeBasic"
+          ? "discountCodeBasicUpdate"
+          : "discountAutomaticBasicUpdate";
+
+      if (result.data?.[mutationKey]?.userErrors?.length > 0) {
+        return {
+          success: false,
+          error: result.data[mutationKey].userErrors
+            .map((err: { message: string }) => err.message)
+            .join(", "),
+        };
+      }
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("Error setting discount targets:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
+/**
  * Ispeziona lo schema GraphQL per la mutation DiscountCodeBasicUpdate
  */
 async function inspectDiscountMutationSchema(admin: AdminType) {
@@ -830,13 +1119,14 @@ export async function debugDiscountCollectionUpdate(
 }
 
 /**
- * Aggiorna un DiscountCodeBasic con le collezioni specificate
+ * Aggiorna un DiscountCodeBasic con le collezioni e prodotti specificati
  * Implementa un approccio in due fasi: rimuovi tutte + aggiungi quelle desiderate
  */
 async function updateDiscountCodeBasic(
   admin: AdminType,
   discountId: string,
   collectionGids: string[],
+  productGids: string[] = [],
 ): Promise<{ success: boolean; error?: string }> {
   try {
     // Primo: ispeziona lo schema per capire i campi disponibili
@@ -861,11 +1151,12 @@ async function updateDiscountCodeBasic(
         );
       }
     }
-    // Fase 3: Sostituisci completamente le collezioni
-    return await replaceDiscountCollections(
+    // Fase 3: Sostituisci completamente le collezioni e prodotti
+    return await replaceDiscountTargets(
       admin,
       discountId,
       collectionGids,
+      productGids,
       "DiscountCodeBasic",
     );
   } catch (error) {
@@ -878,13 +1169,14 @@ async function updateDiscountCodeBasic(
 }
 
 /**
- * Aggiorna un DiscountAutomaticBasic con le collezioni specificate
+ * Aggiorna un DiscountAutomaticBasic con le collezioni e prodotti specificati
  * Implementa un approccio in due fasi: rimuovi tutte + aggiungi quelle desiderate
  */
 async function updateDiscountAutomaticBasic(
   admin: AdminType,
   discountId: string,
   collectionGids: string[],
+  productGids: string[] = [],
 ): Promise<{ success: boolean; error?: string }> {
   try {
     // Fase 1: Recupera le collezioni attuali del discount
@@ -908,11 +1200,12 @@ async function updateDiscountAutomaticBasic(
       }
     }
 
-    // Fase 3: Sostituisci completamente le collezioni
-    return await replaceDiscountCollections(
+    // Fase 3: Sostituisci completamente le collezioni e prodotti
+    return await replaceDiscountTargets(
       admin,
       discountId,
       collectionGids,
+      productGids,
       "DiscountAutomaticBasic",
     );
 
@@ -948,6 +1241,45 @@ export async function getAllCollections(admin: AdminType) {
   return data.data.collections.edges.map((edge: CollectionEdge) => ({
     id: edge.node.id,
     title: edge.node.title,
+  }));
+}
+
+/**
+ * Fetch tutti i prodotti dello shop
+ */
+export async function getAllProducts(
+  admin: AdminType,
+): Promise<
+  Array<{ id: string; title: string; handle: string; imageUrl?: string }>
+> {
+  const response = await admin.graphql(
+    `#graphql
+      query {
+        products(first: 250) {
+          edges {
+            node {
+              id
+              title
+              handle
+              featuredImage {
+                url(transform: { maxWidth: 100, maxHeight: 100 })
+              }
+            }
+          }
+        }
+      }`,
+  );
+
+  const data = await response.json();
+  if (!data.data?.products?.edges) {
+    return [];
+  }
+
+  return data.data.products.edges.map((edge: any) => ({
+    id: edge.node.id,
+    title: edge.node.title,
+    handle: edge.node.handle,
+    imageUrl: edge.node.featuredImage?.url,
   }));
 }
 
@@ -1149,6 +1481,132 @@ export async function getEntitledCollections(
 }
 
 /**
+ * Applica tutte le regole attive SOLO ai prodotti specificati (non a tutti i prodotti dello shop)
+ * Questa funzione rispetta i prodotti già configurati nel discount e applica regole in ordine di priorità
+ */
+async function applyRulesToProducts(
+  shop: string,
+  currentDiscountProducts: Array<{ id: string; title: string }>,
+  allShopProducts: Array<{
+    id: string;
+    title: string;
+    handle: string;
+    imageUrl?: string;
+  }>,
+): Promise<string[]> {
+  // Filter out invalid products
+  const validCurrentProducts = currentDiscountProducts.filter(
+    (prod) => prod.id && prod.id.trim() !== "" && prod.title !== undefined,
+  );
+  const validAllProducts = allShopProducts.filter(
+    (prod) => prod.id && prod.id.trim() !== "" && prod.title !== undefined,
+  );
+
+  console.log(
+    `🎯 Applying multiple rules to ${validCurrentProducts.length} existing discount products (with access to ${validAllProducts.length} total shop products)`,
+  );
+
+  // Get ALL active rules ordered by priority
+  const activeRules = await discountRuleHelpers.getActiveRulesAtTime(shop);
+
+  if (!activeRules || activeRules.length === 0) {
+    console.log(
+      "💡 No active rules found - keeping original discount products",
+    );
+    // Nessuna regola = mantieni i prodotti originali del discount
+    return validCurrentProducts
+      .map((prod) => {
+        try {
+          return extractNumericId(prod.id);
+        } catch (error) {
+          console.warn(`⚠️ Invalid product ID: ${prod.id}`, error);
+          return null;
+        }
+      })
+      .filter((id): id is string => id !== null);
+  }
+
+  console.log(
+    `🎯 Applying ${activeRules.length} rules to products in priority order:`,
+  );
+  activeRules.forEach((rule, index) => {
+    console.log(
+      `  ${index + 1}. ${rule.name} (${rule.mode}) - ${rule.excludedProducts?.length || 0} products`,
+    );
+  });
+
+  // Start with original products of the discount
+  let currentProducts = [...validCurrentProducts];
+
+  // Apply each rule in priority order (0 = highest priority)
+  for (const rule of activeRules) {
+    if (!rule.excludedProducts || rule.excludedProducts.length === 0) {
+      console.log(`⏭️ Skipping rule "${rule.name}" - no products configured`);
+      continue;
+    }
+
+    const ruleProductIds = new Set(
+      rule.excludedProducts.map(
+        (prod: { productId: string }) => prod.productId,
+      ),
+    );
+
+    const beforeCount = currentProducts.length;
+
+    if (rule.mode === "exclude") {
+      // EXCLUDE Mode: Remove products that match this rule
+      currentProducts = currentProducts.filter(
+        (prod) => !ruleProductIds.has(prod.id),
+      );
+      const afterCount = currentProducts.length;
+      const removedCount = beforeCount - afterCount;
+      console.log(
+        `🚫 Rule "${rule.name}" (EXCLUDE): Removed ${removedCount} products (${beforeCount} → ${afterCount})`,
+      );
+    } else {
+      // INCLUDE Mode: Add products that match this rule (from all shop products)
+      const productsToAdd = validAllProducts.filter((prod) =>
+        ruleProductIds.has(prod.id),
+      );
+
+      // Only add products that are not already present
+      const existingIds = new Set(currentProducts.map((p) => p.id));
+      const newProducts = productsToAdd.filter(
+        (prod) => !existingIds.has(prod.id),
+      );
+
+      if (newProducts.length > 0) {
+        currentProducts = [...currentProducts, ...newProducts];
+      }
+
+      const afterCount = currentProducts.length;
+      const addedCount = newProducts.length;
+      console.log(
+        `➕ Rule "${rule.name}" (INCLUDE): Added ${addedCount} new products (${beforeCount} → ${afterCount})`,
+      );
+    }
+  }
+
+  // Convert to numeric IDs
+  const entitledProducts = currentProducts
+    .map((prod) => {
+      try {
+        return extractNumericId(prod.id);
+      } catch (error) {
+        console.warn(`⚠️ Invalid product ID after rules: ${prod.id}`, error);
+        return null;
+      }
+    })
+    .filter((id): id is string => id !== null);
+
+  console.log(
+    `✅ All product rules applied: Final result ${entitledProducts.length} products from ${validCurrentProducts.length} original`,
+  );
+
+  return entitledProducts;
+}
+
+/**
  * Applica tutte le regole attive (o una specifica) a un price rule esistente (AGGIORNATO per regole multiple)
  * @param specificRuleId If provided, applies only this rule instead of all active rules
  */
@@ -1239,19 +1697,38 @@ export async function applyRuleToPriceRule(
       ),
     );
 
-    // 4. Recupera i dettagli delle collezioni attuali
+    // 4. Recupera i dettagli delle collezioni e prodotti attuali
     const allCollections = await getAllCollections(admin);
     const currentCollections = allCollections.filter((collection) =>
       currentCollectionGids.includes(collection.id),
     );
 
+    // Get current discount products
+    const allProducts = await getAllProducts(admin);
+    const currentProductGids = await getCurrentDiscountProducts(
+      admin,
+      priceRuleId,
+    );
+    const currentProducts = allProducts.filter((product) =>
+      currentProductGids.includes(product.id),
+    );
+
     console.log(
-      `📊 Discount "${targetDiscount.title}" currently has ${currentCollections.length} collections`,
+      `📊 Discount "${targetDiscount.title}" currently has ${currentCollections.length} collections and ${currentProducts.length} products`,
     );
     console.log(
       "📋 Current collections:",
       currentCollections.map((c) => c.title),
     );
+    if (currentProducts.length > 0) {
+      console.log(
+        "🏷️ Current products:",
+        currentProducts.map((p) => p.title).slice(0, 5), // Show first 5 products
+        currentProducts.length > 5
+          ? `... and ${currentProducts.length - 5} more`
+          : "",
+      );
+    }
     console.log(
       `🎯 Will apply ${activeRules.length} rules in priority order:`,
       activeRules.map((r, i) => `${i + 1}. ${r.name} (${r.mode})`),
@@ -1262,6 +1739,13 @@ export async function applyRuleToPriceRule(
       shop,
       currentCollections,
       allCollections,
+    );
+
+    // 5.5. Applica le regole ai prodotti attuali del discount (con accesso a tutti i prodotti)
+    const entitledProductIds = await applyRulesToProducts(
+      shop,
+      currentProducts,
+      allProducts,
     );
 
     const originalCount = currentCollections.length;
@@ -1304,6 +1788,7 @@ export async function applyRuleToPriceRule(
         gid?: string;
       },
       entitledCollectionIds,
+      entitledProductIds,
       allCollections,
     );
 

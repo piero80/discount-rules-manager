@@ -35,6 +35,13 @@ interface Collection {
   productsCount: number;
 }
 
+interface Product {
+  id: string;
+  title: string;
+  handle: string;
+  imageUrl?: string;
+}
+
 interface Rule {
   id: string;
   name: string;
@@ -46,6 +53,7 @@ interface Rule {
   scheduledStart?: string;
   scheduledEnd?: string;
   excludedCollections: Collection[];
+  excludedProducts?: Product[];
 }
 
 interface Collection {
@@ -141,6 +149,52 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     collections = [];
   }
 
+  // Fetch products from Shopify GraphQL API
+  let products: Product[] = [];
+  try {
+    console.log("Fetching products from Shopify GraphQL...");
+    const productResponse = await admin.graphql(
+      `query GetProducts {
+        products(first: 250) {
+          edges {
+            node {
+              id
+              title
+              handle
+              featuredImage {
+                url(transform: { maxWidth: 100, maxHeight: 100 })
+              }
+            }
+          }
+        }
+      }`,
+    );
+
+    const productResponseJson = await productResponse.json();
+    console.log("Product GraphQL response:", JSON.stringify(productResponseJson, null, 2));
+
+    // Check for GraphQL errors
+    if (productResponseJson.errors) {
+      console.error("Product GraphQL errors:", productResponseJson.errors);
+      // Don't throw error for products, just continue with empty array
+      products = [];
+    } else if (!productResponseJson.data || !productResponseJson.data.products) {
+      console.warn("No products data in response");
+      products = [];
+    } else {
+      products = productResponseJson.data.products.edges.map((edge: any) => ({
+        id: edge.node.id,
+        title: edge.node.title || "Untitled Product",
+        handle: edge.node.handle || "",
+        imageUrl: edge.node.featuredImage?.url,
+      }));
+      console.log(`Loaded ${products.length} products:`, products);
+    }
+  } catch (error) {
+    console.error("Error loading products:", error);
+    products = [];
+  }
+
   // Get rule details if editing
   let rule: Rule | null = null;
   if (ruleId && ruleId !== "new") {
@@ -162,6 +216,12 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
           title: exc.title,
           productsCount: exc.productsCount,
         })),
+        excludedProducts: ruleData.excludedProducts?.map((exc) => ({
+          id: exc.productId,
+          title: exc.title,
+          handle: exc.handle || "",
+          imageUrl: exc.imageUrl,
+        })) || [],
       };
       console.log("🔍 LOADER DEBUG: Final rule object for form:", {
         id: rule.id,
@@ -189,6 +249,7 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 
   return data({
     collections,
+    products,
     rule,
     planLimit,
     maxPriority,
@@ -261,6 +322,9 @@ async function handleRuleCreateOrUpdate(
     const excludedCollectionsStr = formData.get(
       "excludedCollections",
     ) as string;
+    const excludedProductsStr = formData.get(
+      "excludedProducts",
+    ) as string;
     const ruleId = formData.get("ruleId") as string;
 
     console.log("🔍 DEBUG: Form data parsed:", {
@@ -319,7 +383,39 @@ async function handleRuleCreateOrUpdate(
     } else {
       // console.log("🔍 DEBUG: No collections provided");
     }
-
+    // Parse excluded products  
+    let excludedProducts: Array<{
+      productId: string;
+      title: string;
+      handle?: string;
+      imageUrl?: string;
+    }> = [];
+    if (excludedProductsStr) {
+      try {
+        const parsed = JSON.parse(excludedProductsStr);
+        excludedProducts = Array.isArray(parsed)
+          ? parsed.map((product: Product) => ({
+              productId: product.id, // Map 'id' to 'productId'
+              title: product.title,
+              handle: product.handle,
+              imageUrl: product.imageUrl,
+            }))
+          : [];
+        console.log(
+          "🔍 DEBUG: Parsed products:",
+          excludedProducts.length,
+          "items",
+        );
+      } catch (error) {
+        console.warn("❌ DEBUG: Failed to parse excludedProducts:", error);
+        console.warn(
+          "❌ DEBUG: Raw products string:",
+          excludedProductsStr,
+        );
+      }
+    } else {
+      console.log("ℹ️ DEBUG: No excludedProducts provided");
+    }
     // Use same logic as MultipleRulesList.isRuleCurrentlyActive
     const calculateActiveStatus = (
       baseActive: boolean,
@@ -376,6 +472,7 @@ async function handleRuleCreateOrUpdate(
       scheduledEnd:
         isScheduled && scheduledEnd ? new Date(scheduledEnd) : undefined,
       excludedCollections,
+      excludedProducts,
     };
 
     console.log("🔍 DEBUG: Rule data prepared:", {
@@ -383,6 +480,7 @@ async function handleRuleCreateOrUpdate(
       currentlyActiveStatus, // For info only - not saved
       enabledByUser: active, // What gets saved in database
       excludedCollections: `${ruleData.excludedCollections.length} items`,
+      excludedProducts: `${ruleData.excludedProducts.length} items`,
     });
 
     let result;
@@ -462,7 +560,7 @@ async function handleRuleCreateOrUpdate(
 
 // Component
 export default function RuleDetailsPage(): JSX.Element {
-  const { collections, rule, planLimit, maxPriority, isNew } =
+  const { collections, products, rule, planLimit, maxPriority, isNew } =
     useLoaderData<typeof loader>();
   const actionData = useActionData<ActionData>();
   const submit = useSubmit();
@@ -596,6 +694,7 @@ export default function RuleDetailsPage(): JSX.Element {
                 <RuleForm
                   rule={rule}
                   collections={collections}
+                  products={products}
                   onSave={handleFormSave}
                   onCancel={handleFormCancel}
                   isLoading={isLoading}

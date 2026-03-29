@@ -79,7 +79,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     session.shop,
   );
 
-  // Merge rule stats with complete collection details
+  // Merge rule stats with complete collection and product details
   const enrichedActiveRules = ruleStats.rules.map((ruleStat) => {
     const ruleWithDetails = activeRulesWithDetails.find(
       (r) => r.id === ruleStat.id,
@@ -91,6 +91,13 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
           id: exc.collectionId,
           title: exc.title,
           productsCount: exc.productsCount,
+        })) || [],
+      excludedProducts:
+        ruleWithDetails?.excludedProducts?.map((exc) => ({
+          id: exc.productId,
+          title: exc.title,
+          handle: exc.handle || "",
+          imageUrl: exc.imageUrl,
         })) || [],
     };
   });

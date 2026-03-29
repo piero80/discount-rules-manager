@@ -24,6 +24,13 @@ interface Collection {
   productsCount: number;
 }
 
+interface Product {
+  id: string;
+  title: string;
+  handle: string;
+  imageUrl?: string;
+}
+
 interface Rule {
   id: string;
   name: string;
@@ -39,11 +46,18 @@ interface Rule {
     title: string;
     productsCount: number;
   }>;
+  excludedProducts?: Array<{
+    id: string;
+    title: string;
+    handle?: string;
+    imageUrl?: string;
+  }>;
 }
 
 interface RuleFormProps {
   rule?: Rule | null; // Per editing
   collections: Collection[];
+  products?: Product[]; // Add products prop
   onSave: (formData: FormData) => void;
   onCancel: () => void;
   isLoading?: boolean;
@@ -58,6 +72,7 @@ interface RuleFormProps {
 export function RuleForm({
   rule,
   collections,
+  products = [],
   onSave,
   onCancel,
   isLoading = false,
@@ -103,7 +118,11 @@ export function RuleForm({
   const [selectedCollections, setSelectedCollections] = useState<Collection[]>(
     rule?.excludedCollections || [],
   );
+  const [selectedProducts, setSelectedProducts] = useState<Product[]>(
+    rule?.excludedProducts || [],
+  );
   const [searchValue, setSearchValue] = useState("");
+  const [productSearchValue, setProductSearchValue] = useState("");
 
   // Validation state
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -116,6 +135,13 @@ export function RuleForm({
     (collection: Collection) =>
       collection.title.toLowerCase().includes(searchValue.toLowerCase()) &&
       !selectedCollections.some((selected) => selected.id === collection.id),
+  );
+
+  // Filter products based on search and exclude already selected
+  const filteredProducts = products.filter(
+    (product: Product) =>
+      product.title.toLowerCase().includes(productSearchValue.toLowerCase()) &&
+      !selectedProducts.some((selected) => selected.id === product.id),
   );
 
   // Priority options
@@ -171,12 +197,36 @@ export function RuleForm({
     [selectedCollections],
   );
 
+  const handleAddProduct = useCallback(
+    (product: Product) => {
+      setSelectedProducts([...selectedProducts, product]);
+    },
+    [selectedProducts],
+  );
+
+  const handleRemoveProduct = useCallback(
+    (productId: string) => {
+      setSelectedProducts(
+        selectedProducts.filter((p) => p.id !== productId),
+      );
+    },
+    [selectedProducts],
+  );
+
   const handleSearchChange = useCallback((value: string) => {
     setSearchValue(value);
   }, []);
 
   const handleSearchClear = useCallback(() => {
     setSearchValue("");
+  }, []);
+
+  const handleProductSearchChange = useCallback((value: string) => {
+    setProductSearchValue(value);
+  }, []);
+
+  const handleProductSearchClear = useCallback(() => {
+    setProductSearchValue("");
   }, []);
 
   const handleSave = (): void => {
@@ -222,6 +272,7 @@ export function RuleForm({
     }
 
     formData.append("excludedCollections", JSON.stringify(selectedCollections));
+    formData.append("excludedProducts", JSON.stringify(selectedProducts));
 
     onSave(formData);
   };
@@ -455,6 +506,114 @@ export function RuleForm({
                           </Text>
                           <Text variant="bodySm" tone="subdued" as="span">
                             {productsCount} products
+                          </Text>
+                        </BlockStack>
+                        <Button size="slim">
+                          {isExcludeMode ? "Exclude" : "Include"}
+                        </Button>
+                      </InlineStack>
+                    </ResourceItem>
+                  );
+                }}
+              />
+            </div>
+          </BlockStack>
+        </BlockStack>
+
+        <Divider />
+
+        {/* Products Section */}
+        <BlockStack gap="400">
+          <InlineStack align="space-between" blockAlign="center">
+            <Text variant="headingMd" as="h3">
+              Products to {isExcludeMode ? "exclude" : "include"}
+            </Text>
+            <Text variant="bodyMd" tone="subdued" as="span">
+              {`${selectedProducts.length.toString()} selected`}
+            </Text>
+          </InlineStack>
+
+          {selectedProducts.length > 0 ? (
+            <InlineStack gap="200" wrap={true}>
+              {selectedProducts.map((product) => (
+                <Tag
+                  key={product.id}
+                  onRemove={() => handleRemoveProduct(product.id)}
+                >
+                  {product.title}
+                </Tag>
+              ))}
+            </InlineStack>
+          ) : (
+            <Banner tone={isExcludeMode ? "info" : "warning"}>
+              <p>
+                {isExcludeMode
+                  ? "No products excluded. Discount will apply to ALL products."
+                  : "No products selected. Discount will apply to NO products."}
+              </p>
+            </Banner>
+          )}
+
+          {/* Product Search & Selection */}
+          <BlockStack gap="300">
+            <TextField
+              label={
+                isExcludeMode
+                  ? "Search products to exclude"
+                  : "Search products to include"
+              }
+              value={productSearchValue}
+              onChange={handleProductSearchChange}
+              placeholder="Search products..."
+              autoComplete="off"
+              clearButton
+              onClearButtonClick={handleProductSearchClear}
+            />
+
+            <div
+              style={{
+                maxHeight: "300px",
+                overflowY: "auto",
+                border: "1px solid #e1e3e5",
+                borderRadius: "8px",
+              }}
+            >
+              <ResourceList
+                resourceName={{
+                  singular: "product",
+                  plural: "products",
+                }}
+                items={filteredProducts}
+                renderItem={(item: Product) => {
+                  const { id, title, handle, imageUrl } = item;
+
+                  return (
+                    <ResourceItem
+                      id={id}
+                      onClick={() => handleAddProduct(item)}
+                      verticalAlignment="center"
+                      media={
+                        imageUrl ? (
+                          <img
+                            src={imageUrl}
+                            alt={title}
+                            style={{ 
+                              width: "40px", 
+                              height: "40px", 
+                              objectFit: "cover",
+                              borderRadius: "4px" 
+                            }}
+                          />
+                        ) : undefined
+                      }
+                    >
+                      <InlineStack align="space-between" blockAlign="center">
+                        <BlockStack gap="100">
+                          <Text variant="bodyMd" fontWeight="semibold" as="h4">
+                            {title}
+                          </Text>
+                          <Text variant="bodySm" tone="subdued" as="span">
+                            {handle}
                           </Text>
                         </BlockStack>
                         <Button size="slim">

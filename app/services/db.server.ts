@@ -37,6 +37,12 @@ export interface CreateDiscountRuleData {
     title: string;
     productsCount: number;
   }>;
+  excludedProducts?: Array<{
+    productId: string;
+    title: string;
+    handle?: string;
+    imageUrl?: string;
+  }>;
 }
 
 export interface UpdateDiscountRuleData {
@@ -52,6 +58,12 @@ export interface UpdateDiscountRuleData {
     collectionId: string;
     title: string;
     productsCount: number;
+  }>;
+  excludedProducts?: Array<{
+    productId: string;
+    title: string;
+    handle?: string;
+    imageUrl?: string;
   }>;
 }
 
@@ -84,6 +96,16 @@ export const discountRuleHelpers = {
             collectionId: true,
             title: true,
             productsCount: true,
+            createdAt: true,
+          },
+        },
+        excludedProducts: {
+          select: {
+            id: true,
+            productId: true,
+            title: true,
+            handle: true,
+            imageUrl: true,
             createdAt: true,
           },
         },
@@ -136,6 +158,7 @@ export const discountRuleHelpers = {
         _count: {
           select: {
             excludedCollections: true,
+            excludedProducts: true,
           },
         },
       },
@@ -154,6 +177,7 @@ export const discountRuleHelpers = {
         scheduledStart: rule.scheduledStart?.toISOString(),
         scheduledEnd: rule.scheduledEnd?.toISOString(),
         excludedCount: rule._count.excludedCollections,
+        excludedProductsCount: rule._count.excludedProducts,
       })),
       lastActivity: rules.length > 0 ? rules[0].updatedAt?.toISOString() : null,
     };
@@ -169,6 +193,7 @@ export const discountRuleHelpers = {
         active: data.active,
         isScheduled: data.isScheduled,
         collectionsCount: data.excludedCollections.length,
+        productsCount: data.excludedProducts?.length || 0,
       });
 
       const result = await prisma.discountRule.create({
@@ -185,9 +210,13 @@ export const discountRuleHelpers = {
           excludedCollections: {
             create: data.excludedCollections,
           },
+          excludedProducts: {
+            create: data.excludedProducts || [],
+          },
         },
         include: {
           excludedCollections: true,
+          excludedProducts: true,
         },
       });
 
@@ -205,12 +234,19 @@ export const discountRuleHelpers = {
     // Oppure crea la prima regola per questo shop
     const existingRule = await prisma.discountRule.findFirst({
       where: { shop },
-      include: { excludedCollections: true },
+      include: {
+        excludedCollections: true,
+        excludedProducts: true,
+      },
     });
 
     if (existingRule) {
       // Aggiorna la prima regola esistente
       await prisma.excludedCollection.deleteMany({
+        where: { ruleId: existingRule.id },
+      });
+
+      await prisma.excludedProduct.deleteMany({
         where: { ruleId: existingRule.id },
       });
 
@@ -229,9 +265,13 @@ export const discountRuleHelpers = {
           excludedCollections: {
             create: data.excludedCollections,
           },
+          excludedProducts: {
+            create: data.excludedProducts || [],
+          },
         },
         include: {
           excludedCollections: true,
+          excludedProducts: true,
         },
       });
     } else {
@@ -250,6 +290,8 @@ export const discountRuleHelpers = {
         activeValue: data.active,
         hasCollections: !!data.excludedCollections,
         collectionsCount: data.excludedCollections?.length || 0,
+        hasProducts: !!data.excludedProducts,
+        productsCount: data.excludedProducts?.length || 0,
       });
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -297,9 +339,31 @@ export const discountRuleHelpers = {
         );
       }
 
+      // Se ci sono prodotti esclusi da aggiornare
+      if (data.excludedProducts) {
+        console.log("🔄 DEBUG: Updating excluded products");
+        // Prima elimina tutti i prodotti esistenti
+        await prisma.excludedProduct.deleteMany({
+          where: { ruleId },
+        });
+        console.log("🗑️ DEBUG: Deleted existing products");
+
+        // Poi crea i nuovi
+        updateData.excludedProducts = {
+          create: data.excludedProducts,
+        };
+        console.log(
+          "➕ DEBUG: Adding new products:",
+          data.excludedProducts.length,
+        );
+      }
+
       console.log("🔄 DEBUG: Final updateData before Prisma update:", {
         ...updateData,
         excludedCollections: updateData.excludedCollections
+          ? "updating"
+          : "not updating",
+        excludedProducts: updateData.excludedProducts
           ? "updating"
           : "not updating",
       });
@@ -309,6 +373,7 @@ export const discountRuleHelpers = {
         data: updateData,
         include: {
           excludedCollections: true,
+          excludedProducts: true,
         },
       });
 
@@ -339,6 +404,16 @@ export const discountRuleHelpers = {
             createdAt: true,
           },
         },
+        excludedProducts: {
+          select: {
+            id: true,
+            productId: true,
+            title: true,
+            handle: true,
+            imageUrl: true,
+            createdAt: true,
+          },
+        },
       },
     });
   },
@@ -349,6 +424,7 @@ export const discountRuleHelpers = {
       where: { id: ruleId },
       include: {
         excludedCollections: true,
+        excludedProducts: true,
       },
     });
   },
@@ -364,6 +440,16 @@ export const discountRuleHelpers = {
             collectionId: true,
             title: true,
             productsCount: true,
+            createdAt: true,
+          },
+        },
+        excludedProducts: {
+          select: {
+            id: true,
+            productId: true,
+            title: true,
+            handle: true,
+            imageUrl: true,
             createdAt: true,
           },
         },

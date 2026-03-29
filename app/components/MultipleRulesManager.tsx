@@ -22,10 +22,17 @@ export interface ActiveRule {
   scheduledStart?: string;
   scheduledEnd?: string;
   excludedCount: number;
+  excludedProductsCount?: number;
   excludedCollections?: Array<{
     id: string;
     title: string;
     productsCount: number;
+  }>;
+  excludedProducts?: Array<{
+    id: string;
+    title: string;
+    handle?: string;
+    imageUrl?: string;
   }>;
 }
 
@@ -161,12 +168,15 @@ export function MultipleRulesManager({
     </Text>,
     getModeBadge(rule.mode),
     <Text
-      key={`collections-${rule.id}`}
+      key={`exclusions-${rule.id}`}
       as="span"
       variant="bodySm"
       tone="subdued"
     >
       {rule.excludedCount} collection{rule.excludedCount !== 1 ? "s" : ""}
+      {rule.excludedProductsCount !== undefined && rule.excludedProductsCount > 0 && (
+        <>, {rule.excludedProductsCount} product{rule.excludedProductsCount !== 1 ? "s" : ""}</>
+      )}
     </Text>,
     getRuleStatusBadge(rule),
   ]);
@@ -216,6 +226,9 @@ export function MultipleRulesManager({
                       {rule.mode === "exclude" ? " Removes" : " Adds back"}{" "}
                       {rule.excludedCount} collection
                       {rule.excludedCount !== 1 ? "s" : ""}
+                      {rule.excludedProductsCount !== undefined && rule.excludedProductsCount > 0 && (
+                        <> and {rule.excludedProductsCount} product{rule.excludedProductsCount !== 1 ? "s" : ""}</>
+                      )}
                       {rule.excludedCollections &&
                         rule.excludedCollections.length > 0 &&
                         rule.excludedCollections.map((collection) => (
@@ -227,6 +240,25 @@ export function MultipleRulesManager({
                             {collection.title}
                           </Badge>
                         ))}
+                      {rule.excludedProducts &&
+                        rule.excludedProducts.length > 0 &&
+                        rule.excludedProducts.slice(0, 3).map((product) => (
+                          <Badge
+                            key={product.id}
+                            tone={rule.mode === "exclude" ? "attention" : "success"}
+                            size="small"
+                          >
+                            {product.title}
+                          </Badge>
+                        ))}
+                      {rule.excludedProducts && rule.excludedProducts.length > 3 && (
+                        <Badge
+                          tone="subdued"
+                          size="small"
+                        >
+                          +{rule.excludedProducts.length - 3} more products
+                        </Badge>
+                      )}
                       {!isCurrentlyActive && (
                         <Badge tone="critical" size="small">
                           Currently Inactive
