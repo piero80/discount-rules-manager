@@ -206,9 +206,7 @@ export function RuleForm({
 
   const handleRemoveProduct = useCallback(
     (productId: string) => {
-      setSelectedProducts(
-        selectedProducts.filter((p) => p.id !== productId),
-      );
+      setSelectedProducts(selectedProducts.filter((p) => p.id !== productId));
     },
     [selectedProducts],
   );
@@ -597,11 +595,11 @@ export function RuleForm({
                           <img
                             src={imageUrl}
                             alt={title}
-                            style={{ 
-                              width: "40px", 
-                              height: "40px", 
+                            style={{
+                              width: "40px",
+                              height: "40px",
                               objectFit: "cover",
-                              borderRadius: "4px" 
+                              borderRadius: "4px",
                             }}
                           />
                         ) : undefined

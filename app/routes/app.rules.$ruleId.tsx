@@ -171,14 +171,20 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     );
 
     const productResponseJson = await productResponse.json();
-    console.log("Product GraphQL response:", JSON.stringify(productResponseJson, null, 2));
+    console.log(
+      "Product GraphQL response:",
+      JSON.stringify(productResponseJson, null, 2),
+    );
 
     // Check for GraphQL errors
     if (productResponseJson.errors) {
       console.error("Product GraphQL errors:", productResponseJson.errors);
       // Don't throw error for products, just continue with empty array
       products = [];
-    } else if (!productResponseJson.data || !productResponseJson.data.products) {
+    } else if (
+      !productResponseJson.data ||
+      !productResponseJson.data.products
+    ) {
       console.warn("No products data in response");
       products = [];
     } else {
@@ -216,12 +222,13 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
           title: exc.title,
           productsCount: exc.productsCount,
         })),
-        excludedProducts: ruleData.excludedProducts?.map((exc) => ({
-          id: exc.productId,
-          title: exc.title,
-          handle: exc.handle || "",
-          imageUrl: exc.imageUrl,
-        })) || [],
+        excludedProducts:
+          ruleData.excludedProducts?.map((exc) => ({
+            id: exc.productId,
+            title: exc.title,
+            handle: exc.handle || "",
+            imageUrl: exc.imageUrl,
+          })) || [],
       };
       console.log("🔍 LOADER DEBUG: Final rule object for form:", {
         id: rule.id,
@@ -322,9 +329,7 @@ async function handleRuleCreateOrUpdate(
     const excludedCollectionsStr = formData.get(
       "excludedCollections",
     ) as string;
-    const excludedProductsStr = formData.get(
-      "excludedProducts",
-    ) as string;
+    const excludedProductsStr = formData.get("excludedProducts") as string;
     const ruleId = formData.get("ruleId") as string;
 
     console.log("🔍 DEBUG: Form data parsed:", {
@@ -383,7 +388,7 @@ async function handleRuleCreateOrUpdate(
     } else {
       // console.log("🔍 DEBUG: No collections provided");
     }
-    // Parse excluded products  
+    // Parse excluded products
     let excludedProducts: Array<{
       productId: string;
       title: string;
@@ -408,10 +413,7 @@ async function handleRuleCreateOrUpdate(
         );
       } catch (error) {
         console.warn("❌ DEBUG: Failed to parse excludedProducts:", error);
-        console.warn(
-          "❌ DEBUG: Raw products string:",
-          excludedProductsStr,
-        );
+        console.warn("❌ DEBUG: Raw products string:", excludedProductsStr);
       }
     } else {
       console.log("ℹ️ DEBUG: No excludedProducts provided");
